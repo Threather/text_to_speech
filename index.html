@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speak</title>
+<style>
+  :root{
+    --bg:#f6f5f3; --panel:#fff; --ink:#16151a; --muted:#6b6a72;
+    --line:#e2e0dc; --accent:#2f5bd8; --accent-ink:#fff; --shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#131316; --panel:#1c1c20; --ink:#f0eff2; --muted:#9b9aa3;
+      --line:#2e2e34; --accent:#7c9bff; --accent-ink:#10101a; --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3);
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    display:flex; justify-content:center; padding:48px 16px 64px;
+  }
+  main{width:100%; max-width:680px}
+  h1{font-size:26px; letter-spacing:-.02em; margin:0 0 4px}
+  .sub{color:var(--muted); margin:0 0 28px; font-size:14px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:var(--shadow)}
+  textarea{
+    width:100%; min-height:190px; resize:vertical; padding:14px;
+    background:transparent; color:var(--ink); border:1px solid var(--line);
+    border-radius:10px; font:inherit; line-height:1.6;
+  }
+  textarea:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:14px}
+  label{font-size:12px; color:var(--muted); display:block; margin-bottom:5px; letter-spacing:.02em}
+  select{
+    padding:9px 10px; border-radius:9px; border:1px solid var(--line);
+    background:var(--panel); color:var(--ink); font:inherit; max-width:100%;
+  }
+  .grow{flex:1; min-width:200px}
+  .sliders{display:flex; gap:16px; margin-top:14px; flex-wrap:wrap}
+  .sliders>div{flex:1; min-width:150px}
+  input[type=range]{width:100%; accent-color:var(--accent)}
+  button{
+    padding:11px 20px; border-radius:9px; border:1px solid var(--line);
+    background:var(--panel); color:var(--ink); font:inherit; font-weight:500; cursor:pointer;
+  }
+  button:hover{border-color:var(--muted)}
+  button.primary{background:var(--accent); color:var(--accent-ink); border-color:transparent}
+  button.primary:hover{filter:brightness(1.08)}
+  button:disabled{opacity:.45; cursor:not-allowed}
+  .status{margin-top:14px; font-size:13px; color:var(--muted); min-height:20px}
+  .warn{background:#fff4e5; border:1px solid #ffd9a0; color:#6b4a10; padding:12px 14px; border-radius:10px; margin-bottom:18px; font-size:14px}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .warn{background:#2b2113; border-color:#5c4620; color:#f0d5a8}}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>Speak</h1>
+  <p class="sub">Paste text, pick a voice, press play.</p>
+
+  <div id="unsupported" class="warn hide">
+    Your browser doesn't support speech synthesis. Try Edge, Chrome, or Safari.
+  </div>
+
+  <div class="card">
+    <textarea id="text" placeholder="Paste or type your text here…" spellcheck="false"></textarea>
+
+    <div class="row">
+      <div class="grow">
+        <label for="voice">Voice</label>
+        <select id="voice" style="width:100%"></select>
+      </div>
+    </div>
+
+    <div class="sliders">
+      <div>
+        <label for="rate">Speed &middot; <span id="rateVal">1.0</span>&times;</label>
+        <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1">
+      </div>
+      <div>
+        <label for="pitch">Pitch &middot; <span id="pitchVal">1.0</span></label>
+        <input type="range" id="pitch" min="0" max="2" step="0.1" value="1">
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="speak" class="primary">▶ Speak</button>
+      <button id="pause" disabled>⏸ Pause</button>
+      <button id="stop" disabled>⏹ Stop</button>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+</main>
+
+<script>
+(function () {
+  var synth = window.speechSynthesis;
+  var $ = function (id) { return document.getElementById(id); };
+  var textEl = $('text'), voiceEl = $('voice'), statusEl = $('status');
+  var speakBtn = $('speak'), pauseBtn = $('pause'), stopBtn = $('stop');
+  var rate = $('rate'), pitch = $('pitch');
+
+  if (!synth || typeof SpeechSynthesisUtterance === 'undefined') {
+    $('unsupported').classList.remove('hide');
+    speakBtn.disabled = true;
+    return;
+  }
+
+  // Voices we'd rather have, best first. Matched as substrings.
+  var PREFERRED = ['Liam', 'Natural', 'Google UK English Male', 'Daniel', 'Mark'];
+  var voices = [];
+
+  function loadVoices() {
+    voices = synth.getVoices().filter(function (v) { return /^en/i.test(v.lang); });
+    if (!voices.length) voices = synth.getVoices();
+    if (!voices.length) return;                       // fires again via voiceschanged
+
+    voiceEl.innerHTML = '';
+    voices.forEach(function (v, i) {
+      var o = document.createElement('option');
+      o.value = i;
+      o.textContent = v.name + '  (' + v.lang + ')';
+      voiceEl.appendChild(o);
+    });
+
+    // Pick the best available from PREFERRED, else whatever's default.
+    var chosen = -1;
+    for (var p = 0; p < PREFERRED.length && chosen < 0; p++) {
+      for (var i = 0; i < voices.length; i++) {
+        if (voices[i].name.indexOf(PREFERRED[p]) !== -1) { chosen = i; break; }
+      }
+    }
+    if (chosen < 0) chosen = voices.findIndex(function (v) { return v.default; });
+    voiceEl.value = chosen < 0 ? 0 : chosen;
+
+    say(voices.length + ' voices available.');
+  }
+
+  // getVoices() is async in every browser — it returns [] on first call.
+  loadVoices();
+  synth.onvoiceschanged = loadVoices;
+
+  function say(msg) { statusEl.textContent = msg; }
+
+  rate.oninput  = function () { $('rateVal').textContent  = (+rate.value).toFixed(1); };
+  pitch.oninput = function () { $('pitchVal').textContent = (+pitch.value).toFixed(1); };
+
+  speakBtn.onclick = function () {
+    var text = textEl.value.trim();
+    if (!text) { say('Nothing to read — paste some text first.'); textEl.focus(); return; }
+
+    // Resume instead of restarting if we're mid-sentence and paused.
+    if (synth.paused) { synth.resume(); pauseBtn.textContent = '⏸ Pause'; return; }
+
+    synth.cancel();
+    var u = new SpeechSynthesisUtterance(text);
+    var v = voices[voiceEl.value];
+    if (v) { u.voice = v; u.lang = v.lang; }
+    u.rate = +rate.value;
+    u.pitch = +pitch.value;
+
+    u.onstart = function () {
+      pauseBtn.disabled = false; stopBtn.disabled = false;
+      say('Speaking with ' + (v ? v.name : 'the default voice') + '…');
+    };
+    u.onend = function () { reset('Done.'); };
+    u.onerror = function (e) {
+      reset(e.error === 'interrupted' || e.error === 'canceled' ? 'Stopped.' : 'Error: ' + e.error);
+    };
+
+    synth.speak(u);
+  };
+
+  pauseBtn.onclick = function () {
+    if (synth.paused) { synth.resume(); pauseBtn.textContent = '⏸ Pause'; say('Resumed.'); }
+    else { synth.pause(); pauseBtn.textContent = '▶ Resume'; say('Paused.'); }
+  };
+
+  stopBtn.onclick = function () { synth.cancel(); reset('Stopped.'); };
+
+  function reset(msg) {
+    pauseBtn.disabled = true; stopBtn.disabled = true;
+    pauseBtn.textContent = '⏸ Pause';
+    say(msg);
+  }
+
+  // Chrome silently stops long utterances after ~15s unless poked.
+  setInterval(function () {
+    if (synth.speaking && !synth.paused) { synth.pause(); synth.resume(); }
+  }, 10000);
+})();
+</script>
+</body>
+</html>
