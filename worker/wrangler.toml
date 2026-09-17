@@ -1,0 +1,7 @@
+name = "tts"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+[vars]
+# Restrict who can call this Worker. Use "*" only while testing.
+ALLOWED_ORIGIN = "https://threather.github.io"
