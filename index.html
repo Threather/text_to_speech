@@ -56,6 +56,7 @@
   button.primary{background:var(--accent); color:var(--accent-ink); border-color:transparent}
   button.primary:hover:not(:disabled){filter:brightness(1.08)}
   button:disabled{opacity:.45; cursor:not-allowed}
+  a.dl{text-decoration:none}
   .count{margin-left:auto; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
   .status{margin-top:14px; font-size:13px; color:var(--muted); min-height:20px}
   .bar{height:4px; background:var(--track); border-radius:2px; overflow:hidden; margin-top:12px}
@@ -93,8 +94,8 @@
     <div class="buttons">
       <button id="speak" class="primary" disabled>▶ Speak</button>
       <button id="stop" disabled>⏹ Stop</button>
-      <a id="dl" class="hide" download="speech.wav"><button type="button">⬇ Download</button></a>
-      <span class="count"><span id="chars">0</span> / 2000</span>
+      <a id="dl" class="dl hide" download="speech.wav"><button type="button">⬇ Download</button></a>
+      <span class="count"><span id="chars">0</span> characters</span>
     </div>
 
     <div class="bar hide" id="bar"><i id="barFill"></i></div>
@@ -110,10 +111,12 @@
 import { KokoroTTS } from 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm';
 
 const MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
-const MAX = 2000;
 
-// Kokoro ships ~50 voices; these are the clearest English ones.
-// Prefix: a=American b=British, m=male f=female.
+// Text of any length is split into pieces this size, generated one at a time.
+// Playback starts as soon as the first piece is ready, so long documents don't
+// mean a long wait before you hear anything.
+const CHUNK_TARGET = 350;
+
 const VOICES = [
   ['am_michael', 'Michael — American male'],
   ['am_adam',    'Adam — American male'],
@@ -132,8 +135,11 @@ const rate = $('rate'), charsEl = $('chars'), bar = $('bar'), barFill = $('barFi
 const dl = $('dl');
 
 let tts = null;
-let currentUrl = null;
 let cancelled = false;
+let running = false;
+let urls = [];            // object URLs for the queued chunks
+let pcm = [];             // raw samples, kept so Download can stitch one file
+let sampleRate = 24000;
 
 const say = m => { statusEl.textContent = m; };
 const fail = m => { errEl.textContent = m; errEl.classList.remove('hide'); };
@@ -145,13 +151,69 @@ function setProgress(pct) {
   barFill.style.width = Math.max(0, Math.min(100, pct)) + '%';
 }
 
+// ── Split text without cutting sentences in half ─────────────
+function chunkText(text) {
+  // Sentence-ish boundaries, keeping the punctuation attached.
+  const sentences = text.replace(/\s+/g, ' ').trim().match(/[^.!?…]+[.!?…]+["')\]]*|\S+$/g) || [];
+  const out = [];
+  let buf = '';
+
+  for (let s of sentences) {
+    s = s.trim();
+    if (!s) continue;
+
+    // A single sentence longer than the target gets broken at commas, then spaces.
+    if (s.length > CHUNK_TARGET * 2) {
+      if (buf) { out.push(buf); buf = ''; }
+      let rest = s;
+      while (rest.length > CHUNK_TARGET * 2) {
+        let cut = rest.lastIndexOf(',', CHUNK_TARGET);
+        if (cut < CHUNK_TARGET / 2) cut = rest.lastIndexOf(' ', CHUNK_TARGET);
+        if (cut < 1) cut = CHUNK_TARGET;
+        out.push(rest.slice(0, cut + 1).trim());
+        rest = rest.slice(cut + 1);
+      }
+      if (rest.trim()) buf = rest.trim();
+      continue;
+    }
+
+    if (buf && (buf + ' ' + s).length > CHUNK_TARGET) { out.push(buf); buf = s; }
+    else { buf = buf ? buf + ' ' + s : s; }
+  }
+  if (buf) out.push(buf);
+  return out;
+}
+
+// ── Minimal 16-bit PCM WAV encoder, for the Download button ──
+function encodeWav(chunks, rate) {
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const buf = new ArrayBuffer(44 + total * 2);
+  const view = new DataView(buf);
+  const str = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+
+  str(0, 'RIFF'); view.setUint32(4, 36 + total * 2, true); str(8, 'WAVE');
+  str(12, 'fmt '); view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  str(36, 'data'); view.setUint32(40, total * 2, true);
+
+  let off = 44;
+  for (const c of chunks) {
+    for (let i = 0; i < c.length; i++, off += 2) {
+      const v = Math.max(-1, Math.min(1, c[i]));
+      view.setInt16(off, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+    }
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
 // ── Load the model ───────────────────────────────────────────
-// ~86MB on first visit, then served from the browser's cache.
 (async function init() {
   try {
     setProgress(0);
     tts = await KokoroTTS.from_pretrained(MODEL, {
-      dtype: 'q8',              // quantized: 4x smaller, barely any quality loss
+      dtype: 'q8',
       device: 'wasm',
       progress_callback: (p) => {
         if (p.status === 'progress' && p.total) {
@@ -170,7 +232,7 @@ function setProgress(pct) {
 
     setProgress(null);
     [textEl, voiceEl, rate, speakBtn].forEach(el => { el.disabled = false; });
-    say('Ready. Same voice for everyone, works offline from here.');
+    say('Ready. Paste any length — playback starts right away.');
     textEl.focus();
   } catch (e) {
     setProgress(null);
@@ -180,52 +242,92 @@ function setProgress(pct) {
 })();
 
 // ── UI ───────────────────────────────────────────────────────
-function updateCount() {
-  const n = textEl.value.length;
-  charsEl.textContent = n;
-  charsEl.style.color = n > MAX ? 'var(--errink)' : '';
-}
-textEl.addEventListener('input', updateCount);
-updateCount();
-
+textEl.addEventListener('input', () => { charsEl.textContent = textEl.value.length; });
 rate.oninput = () => { $('rateVal').textContent = (+rate.value).toFixed(1); };
 
 function busy(on) {
   speakBtn.disabled = on;
   stopBtn.disabled = !on;
-  speakBtn.innerHTML = on ? '<span class="spin"></span>Generating…' : '▶ Speak';
+  speakBtn.innerHTML = on ? '<span class="spin"></span>Speaking…' : '▶ Speak';
+}
+
+function playUrl(url) {
+  return new Promise((resolve, reject) => {
+    player.src = url;
+    player.onended = resolve;
+    player.onerror = () => reject(new Error('playback failed'));
+    player.play().catch(reject);
+  });
+}
+
+function cleanup() {
+  urls.forEach(URL.revokeObjectURL);
+  urls = [];
 }
 
 // ── Speak ────────────────────────────────────────────────────
 speakBtn.onclick = async () => {
+  if (running) return;
   clearErr();
   const text = textEl.value.trim();
   if (!text) { say('Nothing to read — paste some text first.'); textEl.focus(); return; }
-  if (text.length > MAX) { fail(`Text is ${text.length} characters; the limit is ${MAX}.`); return; }
 
   cancelled = false;
+  running = true;
   busy(true);
-  say('Generating audio…');
   dl.classList.add('hide');
+  cleanup();
+  pcm = [];
+
+  const chunks = chunkText(text);
+  const voice = voiceEl.value;
+  const speed = +rate.value;
+  const voiceLabel = voiceEl.options[voiceEl.selectedIndex].textContent;
+
+  // Generation runs ahead of playback: while chunk N plays, N+1 is being made.
+  let pending = null;
+  const makeChunk = (i) => tts.generate(chunks[i], { voice, speed });
 
   try {
-    const audio = await tts.generate(text, {
-      voice: voiceEl.value,
-      speed: +rate.value,
-    });
-    if (cancelled) { busy(false); return; }
+    setProgress(0);
+    pending = makeChunk(0);
 
-    if (currentUrl) URL.revokeObjectURL(currentUrl);
-    currentUrl = URL.createObjectURL(audio.toBlob());
-    player.src = currentUrl;
-    dl.href = currentUrl;
-    dl.classList.remove('hide');
+    for (let i = 0; i < chunks.length; i++) {
+      if (cancelled) break;
 
-    await player.play();
-    say('Playing ' + voiceEl.options[voiceEl.selectedIndex].textContent + '…');
+      say(chunks.length > 1
+        ? `${voiceLabel} — part ${i + 1} of ${chunks.length}`
+        : `Playing ${voiceLabel}…`);
+
+      const audio = await pending;
+      if (cancelled) break;
+
+      sampleRate = audio.sampling_rate || sampleRate;
+      pcm.push(audio.audio);
+
+      // Kick off the next one before playing this one, so there's no gap.
+      pending = (i + 1 < chunks.length) ? makeChunk(i + 1) : null;
+
+      const url = URL.createObjectURL(audio.toBlob());
+      urls.push(url);
+
+      setProgress(((i + 1) / chunks.length) * 100);
+      await playUrl(url);
+    }
+
+    if (!cancelled) {
+      dl.href = URL.createObjectURL(encodeWav(pcm, sampleRate));
+      dl.classList.remove('hide');
+      say('Done.');
+    }
   } catch (e) {
-    busy(false);
     if (!cancelled) { fail('Generation failed: ' + e.message); say(''); }
+  } finally {
+    // Swallow the abandoned generation so it can't surface as an unhandled rejection.
+    if (pending) pending.catch(() => {});
+    setProgress(null);
+    busy(false);
+    running = false;
   }
 };
 
@@ -233,12 +335,11 @@ stopBtn.onclick = () => {
   cancelled = true;
   player.pause();
   player.currentTime = 0;
+  player.onended = null;
   busy(false);
+  setProgress(null);
   say('Stopped.');
 };
-
-player.onended = () => { busy(false); say('Done.'); };
-player.onerror  = () => { busy(false); fail('Could not play the generated audio.'); };
 </script>
 </body>
 </html>
