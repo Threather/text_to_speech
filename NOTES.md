@@ -90,6 +90,11 @@ playback time the user gesture is gone. The page plays a silent clip synchronous
 the click handler to keep the element playable. Every iOS browser is WebKit, so this covers
 Chrome/Firefox/Edge on iOS too.
 
+**Kokoro does not work on iOS — confirmed 2026-09-17.** On an iPhone the model load
+stalls indefinitely with no error and no progress. The same page on desktop Edge shows the
+progress bar and loads fine. Treat the 8 in-browser voices as desktop-only; use Google
+voices on mobile.
+
 **`speechSynthesis.getVoices()` returns empty on first call** in every browser. The fallback
 path listens for `voiceschanged`.
 
