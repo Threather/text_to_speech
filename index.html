@@ -95,8 +95,12 @@
 
     <div class="sliders">
       <div>
-        <label for="rate">Speed &middot; <span id="rateVal">1.00</span>&times;</label>
-        <input type="range" id="rate" min="0.7" max="1.2" step="0.05" value="1">
+        <label for="rate">Speed &middot; <span id="rateVal">1.0</span>&times;</label>
+        <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1">
+      </div>
+      <div>
+        <label for="pitch">Pitch &middot; <span id="pitchVal">0</span></label>
+        <input type="range" id="pitch" min="-10" max="10" step="1" value="0">
       </div>
     </div>
 
@@ -123,9 +127,96 @@
   var WORKER_URL = 'https://tts.kevinpom1999.workers.dev';
   // ─────────────────────────────────────────────────────────────
 
+  // Google Cloud voices, grouped by family. Add any voice name from
+  // https://cloud.google.com/text-to-speech/docs/voices
+  //
+  // Cost/quality tiers differ — see the README before switching the default:
+  //   Chirp3-HD  newest, most natural
+  //   Neural2    excellent, generous free tier   (the default)
+  //   Studio     best for narration, small free tier, much pricier
+  //   Wavenet    older but still good
+  //   Standard   robotic, largest free tier
+  var VOICE_GROUPS = [
+    ['Chirp 3 HD — most natural', [
+      ['en-US-Chirp3-HD-Charon',     'Charon — US male'],
+      ['en-US-Chirp3-HD-Puck',       'Puck — US male'],
+      ['en-US-Chirp3-HD-Fenrir',     'Fenrir — US male'],
+      ['en-US-Chirp3-HD-Orus',       'Orus — US male'],
+      ['en-US-Chirp3-HD-Kore',       'Kore — US female'],
+      ['en-US-Chirp3-HD-Aoede',      'Aoede — US female'],
+      ['en-US-Chirp3-HD-Leda',       'Leda — US female'],
+      ['en-US-Chirp3-HD-Zephyr',     'Zephyr — US female'],
+      ['en-GB-Chirp3-HD-Charon',     'Charon — British male'],
+      ['en-GB-Chirp3-HD-Puck',       'Puck — British male'],
+      ['en-GB-Chirp3-HD-Kore',       'Kore — British female'],
+      ['en-AU-Chirp3-HD-Charon',     'Charon — Australian male'],
+      ['en-AU-Chirp3-HD-Kore',       'Kore — Australian female'],
+      ['en-IN-Chirp3-HD-Charon',     'Charon — Indian male'],
+      ['en-IN-Chirp3-HD-Kore',       'Kore — Indian female']
+    ]],
+    ['Neural2 — recommended', [
+      ['en-US-Neural2-D', 'Neural D — US male'],
+      ['en-US-Neural2-A', 'Neural A — US male'],
+      ['en-US-Neural2-I', 'Neural I — US male'],
+      ['en-US-Neural2-J', 'Neural J — US male'],
+      ['en-US-Neural2-C', 'Neural C — US female'],
+      ['en-US-Neural2-E', 'Neural E — US female'],
+      ['en-US-Neural2-F', 'Neural F — US female'],
+      ['en-US-Neural2-G', 'Neural G — US female'],
+      ['en-US-Neural2-H', 'Neural H — US female'],
+      ['en-GB-Neural2-B', 'Neural B — British male'],
+      ['en-GB-Neural2-D', 'Neural D — British male'],
+      ['en-GB-Neural2-A', 'Neural A — British female'],
+      ['en-GB-Neural2-C', 'Neural C — British female'],
+      ['en-GB-Neural2-F', 'Neural F — British female'],
+      ['en-AU-Neural2-B', 'Neural B — Australian male'],
+      ['en-AU-Neural2-D', 'Neural D — Australian male'],
+      ['en-AU-Neural2-A', 'Neural A — Australian female'],
+      ['en-AU-Neural2-C', 'Neural C — Australian female'],
+      ['en-IN-Neural2-B', 'Neural B — Indian male'],
+      ['en-IN-Neural2-C', 'Neural C — Indian male'],
+      ['en-IN-Neural2-A', 'Neural A — Indian female'],
+      ['en-IN-Neural2-D', 'Neural D — Indian female']
+    ]],
+    ['Studio — narration (pricier)', [
+      ['en-US-Studio-Q', 'Studio Q — US male'],
+      ['en-US-Studio-O', 'Studio O — US female'],
+      ['en-GB-Studio-B', 'Studio B — British male'],
+      ['en-GB-Studio-C', 'Studio C — British female']
+    ]],
+    ['News / Polyglot', [
+      ['en-US-News-N',     'News N — US male'],
+      ['en-US-News-K',     'News K — US female'],
+      ['en-US-News-L',     'News L — US female'],
+      ['en-US-Polyglot-1', 'Polyglot — US male'],
+      ['en-GB-News-J',     'News J — British male'],
+      ['en-GB-News-K',     'News K — British female']
+    ]],
+    ['WaveNet', [
+      ['en-US-Wavenet-D', 'Wavenet D — US male'],
+      ['en-US-Wavenet-B', 'Wavenet B — US male'],
+      ['en-US-Wavenet-J', 'Wavenet J — US male'],
+      ['en-US-Wavenet-F', 'Wavenet F — US female'],
+      ['en-US-Wavenet-H', 'Wavenet H — US female'],
+      ['en-GB-Wavenet-B', 'Wavenet B — British male'],
+      ['en-GB-Wavenet-D', 'Wavenet D — British male'],
+      ['en-GB-Wavenet-A', 'Wavenet A — British female'],
+      ['en-AU-Wavenet-B', 'Wavenet B — Australian male'],
+      ['en-AU-Wavenet-C', 'Wavenet C — Australian female']
+    ]],
+    ['Standard — cheapest', [
+      ['en-US-Standard-D', 'Standard D — US male'],
+      ['en-US-Standard-B', 'Standard B — US male'],
+      ['en-US-Standard-C', 'Standard C — US female'],
+      ['en-US-Standard-F', 'Standard F — US female'],
+      ['en-GB-Standard-B', 'Standard B — British male'],
+      ['en-GB-Standard-A', 'Standard A — British female']
+    ]]
+  ];
+
   // The first chunk is deliberately small so playback starts fast; later chunks are
   // bigger because they're fetched while earlier audio is still playing.
-  var PREFERRED_VOICE = 'Alexander';
+  var DEFAULT_VOICE = 'en-US-Chirp3-HD-Charon';
 
   var FIRST_CHUNK = 220;
   var CHUNK = 700;
@@ -134,7 +225,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var textEl = $('text'), voiceEl = $('voice'), statusEl = $('status'), errEl = $('error');
   var speakBtn = $('speak'), stopBtn = $('stop'), player = $('player');
-  var rate = $('rate'), charsEl = $('chars');
+  var rate = $('rate'), pitch = $('pitch'), charsEl = $('chars');
   var bar = $('bar'), barFill = $('barFill');
 
   var useWorker = !!WORKER_URL;
@@ -153,37 +244,17 @@
 
   // ── Voices ───────────────────────────────────────────────────
   if (useWorker) {
-    // Ask the Worker which voices are in your ElevenLabs library, so the IDs
-    // are always right and new voices you add show up automatically.
-    speakBtn.disabled = true;
-    say('Loading voices…');
-    fetch(WORKER_URL + '/voices')
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (list) {
-        if (!list.length) throw new Error('No voices in your ElevenLabs library');
-        var groups = {};
-        list.forEach(function (v) { (groups[v.category] = groups[v.category] || []).push(v); });
-        Object.keys(groups).sort().forEach(function (cat) {
-          var grp = document.createElement('optgroup');
-          grp.label = cat;
-          groups[cat].forEach(function (v) {
-            var o = document.createElement('option');
-            o.value = v.id; o.textContent = v.name;
-            grp.appendChild(o);
-          });
-          voiceEl.appendChild(grp);
-        });
-        // Prefer the voice you picked, if it's in the library.
-        for (var i = 0; i < voiceEl.options.length; i++) {
-          if (voiceEl.options[i].textContent === PREFERRED_VOICE) { voiceEl.selectedIndex = i; break; }
-        }
-        speakBtn.disabled = false;
-        say('Ready.');
-      })
-      .catch(function (e) {
-        fail('Could not load voices: ' + e.message);
-        say('');
+    VOICE_GROUPS.forEach(function (g) {
+      var grp = document.createElement('optgroup');
+      grp.label = g[0];
+      g[1].forEach(function (v) {
+        var o = document.createElement('option');
+        o.value = v[0]; o.textContent = v[1];
+        grp.appendChild(o);
       });
+      voiceEl.appendChild(grp);
+    });
+    voiceEl.value = DEFAULT_VOICE;
     $('foot').textContent = 'Same voice for every visitor, on every browser.';
   } else {
     $('setup').classList.remove('hide');
@@ -266,7 +337,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: text, voice: voiceEl.value,
-        speed: +rate.value
+        rate: +rate.value, pitch: +pitch.value
       })
     }).then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
@@ -280,7 +351,8 @@
 
   // ── UI ───────────────────────────────────────────────────────
   textEl.addEventListener('input', function () { charsEl.textContent = textEl.value.length; });
-  rate.oninput  = function () { $('rateVal').textContent  = (+rate.value).toFixed(2); };
+  rate.oninput  = function () { $('rateVal').textContent  = (+rate.value).toFixed(1); };
+  pitch.oninput = function () { $('pitchVal').textContent = pitch.value; };
 
   function busy(on) {
     speakBtn.disabled = on;
@@ -356,6 +428,7 @@
     var v = browserVoices[voiceEl.value];
     if (v) { u.voice = v; u.lang = v.lang; }
     u.rate = +rate.value;
+    u.pitch = 1 + (+pitch.value / 10);
     u.onstart = function () { say('Speaking with ' + (v ? v.name : 'default') + '…'); };
     u.onend   = function () { busy(false); running = false; say('Done.'); };
     u.onerror = function () { busy(false); running = false; say('Stopped.'); };

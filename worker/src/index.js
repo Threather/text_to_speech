@@ -1,73 +1,56 @@
 /**
- * Cloudflare Worker — ElevenLabs text-to-speech proxy.
+ * Cloudflare Worker — Google Cloud Text-to-Speech proxy.
  *
  * Holds the API key so it never reaches the public site.
- *
- *   POST /         { text, voice, speed } -> audio/mpeg
- *   GET  /voices                          -> [{ id, name, category }]
- *
- * The voice list is proxied so the page always shows the voices actually in your
- * ElevenLabs library, with the right IDs — no hardcoding.
+ * POST { text, voice, rate, pitch } -> audio/mpeg
  *
  * Secrets / vars:
- *   ELEVEN_KEY     - secret, your ElevenLabs API key
- *   ELEVEN_MODEL   - optional, defaults to eleven_multilingual_v2
+ *   GOOGLE_KEY     - secret: npx wrangler secret put GOOGLE_KEY
  *   ALLOWED_ORIGIN - your site's origin; "*" allows anyone (don't ship that)
  */
 
-const API = 'https://api.elevenlabs.io/v1';
-const MAX_CHARS = 4000;
+const ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 
-// Quality default. eleven_turbo_v2_5 is faster and uses fewer credits;
-// eleven_flash_v2_5 is cheapest and fastest but noticeably flatter.
-const DEFAULT_MODEL = 'eleven_multilingual_v2';
+// Google's own cap is 5000 bytes per request. The page sends much smaller chunks.
+const MAX_CHARS = 4500;
+const DEFAULT_VOICE = 'en-US-Neural2-D';
 
-// ElevenLabs voice IDs are 20-char alphanumeric strings.
-const VOICE_RE = /^[A-Za-z0-9]{16,32}$/;
+// Only allow Google voice names, so the key can't be used for arbitrary calls.
+// Covers en-US-Neural2-D, en-US-Studio-Q, en-US-Polyglot-1 and the longer
+// multi-part names like en-US-Chirp3-HD-Charon.
+const VOICE_RE = /^[a-z]{2}-[A-Z]{2}(?:-[A-Za-z0-9]+){1,3}$/;
 
 const cors = origin => ({
   'Access-Control-Allow-Origin': origin,
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Max-Age': '86400',
 });
+
+// Google returns base64; the page wants raw audio bytes.
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 export default {
   async fetch(request, env) {
     const allowed = env.ALLOWED_ORIGIN || '*';
     const headers = cors(allowed);
-    const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') return new Response(null, { headers });
-
-    if (!env.ELEVEN_KEY) {
-      return new Response('Worker is missing ELEVEN_KEY', { status: 500, headers });
-    }
+    if (request.method !== 'POST') return new Response('POST only', { status: 405, headers });
 
     const origin = request.headers.get('Origin');
     if (allowed !== '*' && origin && origin !== allowed) {
       return new Response('Forbidden origin', { status: 403, headers });
     }
 
-    // ── Voice list ────────────────────────────────────────────
-    if (url.pathname === '/voices') {
-      const r = await fetch(`${API}/voices`, { headers: { 'xi-api-key': env.ELEVEN_KEY } });
-      if (!r.ok) {
-        return new Response(`Could not list voices (${r.status})`, { status: 502, headers });
-      }
-      const data = await r.json();
-      const voices = (data.voices || []).map(v => ({
-        id: v.voice_id,
-        name: v.name,
-        category: v.category || 'other',
-      }));
-      return new Response(JSON.stringify(voices), {
-        headers: { ...headers, 'Content-Type': 'application/json', 'Cache-Control': 'max-age=300' },
-      });
+    if (!env.GOOGLE_KEY) {
+      return new Response('Worker is missing GOOGLE_KEY', { status: 500, headers });
     }
-
-    // ── Synthesis ─────────────────────────────────────────────
-    if (request.method !== 'POST') return new Response('POST only', { status: 405, headers });
 
     let body;
     try { body = await request.json(); }
@@ -79,40 +62,40 @@ export default {
       return new Response(`Too long (max ${MAX_CHARS})`, { status: 413, headers });
     }
 
-    const voice = body.voice || '';
-    if (!VOICE_RE.test(voice)) return new Response('Bad voice id', { status: 400, headers });
+    const voice = VOICE_RE.test(body.voice || '') ? body.voice : DEFAULT_VOICE;
+    const languageCode = voice.split('-').slice(0, 2).join('-');
 
-    // ElevenLabs has no pitch control; speed lives in voice_settings.
-    const speed = Math.min(1.2, Math.max(0.7, Number(body.speed) || 1));
+    // Google takes rate as a multiplier and pitch in semitones.
+    const speakingRate = Math.min(2, Math.max(0.5, Number(body.rate) || 1));
+    const pitch = Math.min(20, Math.max(-20, Number(body.pitch) || 0));
 
-    const r = await fetch(`${API}/text-to-speech/${voice}`, {
+    // Chirp voices reject pitch outright, so only send it to the families
+    // that accept it.
+    const audioConfig = { audioEncoding: 'MP3', speakingRate };
+    if (pitch && !voice.includes('Chirp')) audioConfig.pitch = pitch;
+
+    const upstream = await fetch(`${ENDPOINT}?key=${env.GOOGLE_KEY}`, {
       method: 'POST',
-      headers: {
-        'xi-api-key': env.ELEVEN_KEY,
-        'Content-Type': 'application/json',
-        Accept: 'audio/mpeg',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        text,
-        model_id: env.ELEVEN_MODEL || DEFAULT_MODEL,
-        voice_settings: { stability: 0.5, similarity_boost: 0.75, speed },
+        input: { text },
+        voice: { languageCode, name: voice },
+        audioConfig,
       }),
     });
 
-    if (!r.ok) {
-      const detail = await r.text();
-      let msg = `ElevenLabs error ${r.status}`;
-      try {
-        const j = JSON.parse(detail);
-        msg += ': ' + (j.detail?.message || j.detail?.status || j.detail || '');
-      } catch {}
-      // 401 = bad key, 429 = out of credits. Both are worth saying plainly.
-      if (r.status === 401) msg = 'ElevenLabs rejected the API key.';
-      if (r.status === 429) msg = 'Out of ElevenLabs credits for this month.';
+    if (!upstream.ok) {
+      const detail = await upstream.text();
+      // Don't echo the whole payload back — it can contain the key in error URLs.
+      let msg = `Google error ${upstream.status}`;
+      try { msg += ': ' + (JSON.parse(detail).error?.message || ''); } catch {}
       return new Response(msg.slice(0, 300), { status: 502, headers });
     }
 
-    return new Response(r.body, {
+    const data = await upstream.json();
+    if (!data.audioContent) return new Response('No audio returned', { status: 502, headers });
+
+    return new Response(b64ToBytes(data.audioContent), {
       headers: { ...headers, 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' },
     });
   },
