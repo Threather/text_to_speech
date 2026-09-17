@@ -4,86 +4,47 @@ A text-to-speech page. Paste text, pick a voice, press play.
 
 Live: https://threather.github.io/text_to_speech/
 
-It runs in two modes:
+Everything runs in the visitor's browser. No server, no API key, no account, no
+per-request cost. Text is never uploaded anywhere.
 
-| Mode | Voice | Works in | Cost |
-|---|---|---|---|
-| **Worker configured** | Real `en-CA-LiamNeural` (Azure) | Every browser, identical | Free tier: 500k chars/month |
-| **Not configured** | Whatever the visitor's browser has | Varies per browser/OS | Free |
+## How it works
 
-Out of the box it's in fallback mode. Follow the steps below to get Liam everywhere.
+[Kokoro](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) is an 82M-parameter
+neural TTS model. The page loads it with
+[kokoro-js](https://www.npmjs.com/package/kokoro-js) and runs inference in WebAssembly.
 
----
+The quantized model is ~86MB, fetched from the Hugging Face CDN on first visit and cached
+by the browser afterwards. It isn't committed here — that keeps the repo small and avoids
+GitHub's 100MB file limit.
 
-## Setup
+Because the model ships with the page rather than coming from the visitor's OS, **every
+visitor hears the same voice** — Chrome, Firefox, Safari, mobile, and offline after the
+first load.
 
-### 1. Azure Speech resource
+## Editing
 
-1. [portal.azure.com](https://portal.azure.com) → **Create a resource** → search **Speech** → Create.
-2. Pick a region and note it (e.g. `eastus`). Choose pricing tier **F0** (free, 500k characters/month).
-3. Once deployed: **Keys and Endpoint** → copy **KEY 1** and confirm the **Location/Region**.
+**Voices** — the `VOICES` array in `index.html`. Kokoro has ~50; the eight clearest English
+ones are listed. Prefixes: `a` American, `b` British, `m` male, `f` female.
 
-A card on file is required even for the free tier. F0 does not auto-upgrade — it stops serving when you hit the cap.
+**Length cap** — `MAX`, currently 2000 characters. Longer text works but generation time
+scales with it.
 
-### 2. Deploy the Worker
+**Quality vs. size** — `dtype: 'q8'` is the quantized model. `'fp32'` is better quality at
+roughly 4x the download.
 
-From the `worker/` folder:
+## Deploying
 
-```bash
-npm install -g wrangler
-```
-
-```bash
-npx wrangler login
-```
-
-Set your region and site origin in `wrangler.toml`, then store the key as a secret (never commit it):
+It's a single static file. Push to `main` and GitHub Pages redeploys.
 
 ```bash
-npx wrangler secret put AZURE_KEY
+git add -A && git commit -m "Update" && git push
 ```
 
-```bash
-npx wrangler deploy
-```
+## Why not the Microsoft Liam voice
 
-Wrangler prints a URL like `https://liam-tts.your-name.workers.dev`. Copy it.
+Liam is an Azure cloud voice. Using it means an Azure subscription, an API key, and a
+server-side proxy to hold that key — and Azure signup isn't available in every country.
+The Windows "natural voice" packs can't be redistributed either; they're licensed to the
+machine they're installed on.
 
-### 3. Connect the page
-
-In `index.html`, near the top of the `<script>`:
-
-```js
-var WORKER_URL = 'https://liam-tts.your-name.workers.dev';
-```
-
-Commit and push. GitHub Pages redeploys automatically.
-
-```bash
-git add -A && git commit -m "Connect TTS worker" && git push
-```
-
----
-
-## Notes
-
-**The key stays on Cloudflare.** It's a Wrangler secret, never in this repo. The page only
-ever talks to the Worker.
-
-**Lock down the origin.** `ALLOWED_ORIGIN` in `wrangler.toml` restricts who can call the
-Worker. With `"*"` anyone who finds the URL can spend your Azure quota.
-
-**Limits.** 5000 characters per request, enforced on both sides. Azure's own ceiling is
-around 10k including SSML markup.
-
-**Adding voices.** Any Azure neural voice name works — add it to `AZURE_VOICES` in
-`index.html`. The full list is in Microsoft's Speech service voice documentation.
-
-## Layout
-
-```
-index.html          the whole site
-worker/
-  src/index.js      Azure proxy
-  wrangler.toml     region + allowed origin (no secrets)
-```
+Kokoro is Apache-2.0 licensed and free to host, which is why it's here.

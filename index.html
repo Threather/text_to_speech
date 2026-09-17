@@ -9,16 +9,16 @@
     --bg:#f6f5f3; --panel:#fff; --ink:#16151a; --muted:#6b6a72;
     --line:#e2e0dc; --accent:#2f5bd8; --accent-ink:#fff;
     --shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px rgba(0,0,0,.06);
-    --warnbg:#fff4e5; --warnline:#ffd9a0; --warnink:#6b4a10;
     --errbg:#fdeaea; --errline:#f5bcbc; --errink:#8a2020;
+    --track:#e8e6e2;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --bg:#131316; --panel:#1c1c20; --ink:#f0eff2; --muted:#9b9aa3;
       --line:#2e2e34; --accent:#7c9bff; --accent-ink:#10101a;
       --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3);
-      --warnbg:#2b2113; --warnline:#5c4620; --warnink:#f0d5a8;
       --errbg:#2d1616; --errline:#5e2626; --errink:#ffb4b4;
+      --track:#2a2a30;
     }
   }
   *{box-sizing:border-box}
@@ -32,19 +32,20 @@
   .sub{color:var(--muted); margin:0 0 28px; font-size:14px}
   .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:var(--shadow)}
   textarea{
-    width:100%; min-height:190px; resize:vertical; padding:14px;
+    width:100%; min-height:180px; resize:vertical; padding:14px;
     background:transparent; color:var(--ink); border:1px solid var(--line);
     border-radius:10px; font:inherit; line-height:1.6;
   }
   textarea:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
+  textarea:disabled{opacity:.6}
   label{font-size:12px; color:var(--muted); display:block; margin-bottom:5px; letter-spacing:.02em}
   select{
     padding:9px 10px; border-radius:9px; border:1px solid var(--line);
     background:var(--panel); color:var(--ink); font:inherit; width:100%;
   }
   .row{margin-top:14px}
-  .sliders{display:flex; gap:16px; margin-top:14px; flex-wrap:wrap}
-  .sliders>div{flex:1; min-width:150px}
+  .sliders{display:flex; gap:16px; margin-top:14px}
+  .sliders>div{flex:1}
   input[type=range]{width:100%; accent-color:var(--accent)}
   .buttons{display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; align-items:center}
   button{
@@ -57,15 +58,16 @@
   button:disabled{opacity:.45; cursor:not-allowed}
   .count{margin-left:auto; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
   .status{margin-top:14px; font-size:13px; color:var(--muted); min-height:20px}
-  .banner{padding:12px 14px; border-radius:10px; margin-bottom:18px; font-size:14px; border:1px solid}
-  .banner.warn{background:var(--warnbg); border-color:var(--warnline); color:var(--warnink)}
-  .banner.err{background:var(--errbg); border-color:var(--errline); color:var(--errink); margin:14px 0 0}
-  code{font-family:ui-monospace,"Cascadia Code",Consolas,monospace; font-size:.9em}
+  .bar{height:4px; background:var(--track); border-radius:2px; overflow:hidden; margin-top:12px}
+  .bar>i{display:block; height:100%; width:0; background:var(--accent); transition:width .25s ease}
+  .banner{padding:12px 14px; border-radius:10px; font-size:14px; border:1px solid; margin-top:14px}
+  .banner.err{background:var(--errbg); border-color:var(--errline); color:var(--errink)}
   .hide{display:none}
   .spin{display:inline-block; width:11px; height:11px; border:2px solid currentColor;
         border-right-color:transparent; border-radius:50%; animation:sp .7s linear infinite;
         vertical-align:-1px; margin-right:6px}
   @keyframes sp{to{transform:rotate(360deg)}}
+  footer{margin-top:18px; font-size:12px; color:var(--muted); text-align:center}
 </style>
 </head>
 <body>
@@ -73,217 +75,170 @@
   <h1>Speak</h1>
   <p class="sub">Paste text, pick a voice, press play.</p>
 
-  <div id="setupBanner" class="banner warn hide">
-    <strong>Not connected yet.</strong> Set <code>WORKER_URL</code> at the top of the
-    script to your Cloudflare Worker to get the real Liam voice in every browser.
-    Until then this falls back to whatever voices your own browser provides.
-  </div>
-
   <div class="card">
-    <textarea id="text" placeholder="Paste or type your text here…" spellcheck="false"></textarea>
+    <textarea id="text" placeholder="Paste or type your text here…" spellcheck="false" disabled></textarea>
 
     <div class="row">
       <label for="voice">Voice</label>
-      <select id="voice"></select>
+      <select id="voice" disabled></select>
     </div>
 
     <div class="sliders">
       <div>
         <label for="rate">Speed &middot; <span id="rateVal">1.0</span>&times;</label>
-        <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1">
-      </div>
-      <div>
-        <label for="pitch">Pitch &middot; <span id="pitchVal">0</span></label>
-        <input type="range" id="pitch" min="-50" max="50" step="5" value="0">
+        <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1" disabled>
       </div>
     </div>
 
     <div class="buttons">
-      <button id="speak" class="primary">▶ Speak</button>
+      <button id="speak" class="primary" disabled>▶ Speak</button>
       <button id="stop" disabled>⏹ Stop</button>
-      <span class="count"><span id="chars">0</span> / 5000</span>
+      <a id="dl" class="hide" download="speech.wav"><button type="button">⬇ Download</button></a>
+      <span class="count"><span id="chars">0</span> / 2000</span>
     </div>
 
-    <div class="status" id="status"></div>
+    <div class="bar hide" id="bar"><i id="barFill"></i></div>
+    <div class="status" id="status">Loading the voice model…</div>
     <div id="error" class="banner err hide"></div>
   </div>
 
   <audio id="player" class="hide"></audio>
+  <footer>Runs entirely in your browser. Nothing is uploaded.</footer>
 </main>
 
-<script>
-(function () {
-  // ─────────────────────────────────────────────────────────────
-  // Paste your deployed Worker URL here, e.g.
-  //   'https://liam-tts.YOUR-SUBDOMAIN.workers.dev'
-  // Leave blank to use the browser's built-in voices instead.
-  var WORKER_URL = '';
-  // ─────────────────────────────────────────────────────────────
+<script type="module">
+import { KokoroTTS } from 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm';
 
-  var MAX = 5000;
+const MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
+const MAX = 2000;
 
-  // Azure neural voices. Liam is the one you wanted; the rest are here so you
-  // can compare. Any valid Azure voice name works if you add it.
-  var AZURE_VOICES = [
-    ['en-CA-LiamNeural',    'Liam — English (Canada)'],
-    ['en-CA-ClaraNeural',   'Clara — English (Canada)'],
-    ['en-US-GuyNeural',     'Guy — English (US)'],
-    ['en-US-AriaNeural',    'Aria — English (US)'],
-    ['en-GB-RyanNeural',    'Ryan — English (UK)'],
-    ['en-GB-SoniaNeural',   'Sonia — English (UK)'],
-    ['en-AU-WilliamNeural', 'William — English (Australia)']
-  ];
+// Kokoro ships ~50 voices; these are the clearest English ones.
+// Prefix: a=American b=British, m=male f=female.
+const VOICES = [
+  ['am_michael', 'Michael — American male'],
+  ['am_adam',    'Adam — American male'],
+  ['am_echo',    'Echo — American male'],
+  ['bm_george',  'George — British male'],
+  ['bm_lewis',   'Lewis — British male'],
+  ['af_heart',   'Heart — American female'],
+  ['af_bella',   'Bella — American female'],
+  ['bf_emma',    'Emma — British female'],
+];
 
-  var $ = function (id) { return document.getElementById(id); };
-  var textEl = $('text'), voiceEl = $('voice'), statusEl = $('status'), errEl = $('error');
-  var speakBtn = $('speak'), stopBtn = $('stop'), player = $('player');
-  var rate = $('rate'), pitch = $('pitch'), charsEl = $('chars');
+const $ = id => document.getElementById(id);
+const textEl = $('text'), voiceEl = $('voice'), statusEl = $('status'), errEl = $('error');
+const speakBtn = $('speak'), stopBtn = $('stop'), player = $('player');
+const rate = $('rate'), charsEl = $('chars'), bar = $('bar'), barFill = $('barFill');
+const dl = $('dl');
 
-  var useWorker = !!WORKER_URL;
-  var browserVoices = [];
-  var currentUrl = null;          // object URL we need to revoke
-  var controller = null;          // lets Stop abort an in-flight request
+let tts = null;
+let currentUrl = null;
+let cancelled = false;
 
-  function say(m) { statusEl.textContent = m; }
-  function fail(m) { errEl.textContent = m; errEl.classList.remove('hide'); }
-  function clearErr() { errEl.classList.add('hide'); }
+const say = m => { statusEl.textContent = m; };
+const fail = m => { errEl.textContent = m; errEl.classList.remove('hide'); };
+const clearErr = () => errEl.classList.add('hide');
 
-  // ── Voice list ───────────────────────────────────────────────
-  if (useWorker) {
-    AZURE_VOICES.forEach(function (v) {
-      var o = document.createElement('option');
-      o.value = v[0]; o.textContent = v[1];
+function setProgress(pct) {
+  if (pct == null) { bar.classList.add('hide'); return; }
+  bar.classList.remove('hide');
+  barFill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+
+// ── Load the model ───────────────────────────────────────────
+// ~86MB on first visit, then served from the browser's cache.
+(async function init() {
+  try {
+    setProgress(0);
+    tts = await KokoroTTS.from_pretrained(MODEL, {
+      dtype: 'q8',              // quantized: 4x smaller, barely any quality loss
+      device: 'wasm',
+      progress_callback: (p) => {
+        if (p.status === 'progress' && p.total) {
+          const pct = (p.loaded / p.total) * 100;
+          setProgress(pct);
+          say(`Downloading voice model… ${Math.round(pct)}% (one time only)`);
+        }
+      },
+    });
+
+    VOICES.forEach(([id, label]) => {
+      const o = document.createElement('option');
+      o.value = id; o.textContent = label;
       voiceEl.appendChild(o);
     });
-    say('Ready — same voice for every visitor.');
-  } else {
-    $('setupBanner').classList.remove('hide');
-    if (!window.speechSynthesis) {
-      fail("This browser has no speech support and no Worker is configured.");
-      speakBtn.disabled = true;
-    } else {
-      // getVoices() is async everywhere — it returns [] on the first call.
-      var load = function () {
-        var all = speechSynthesis.getVoices();
-        browserVoices = all.filter(function (v) { return /^en/i.test(v.lang); });
-        if (!browserVoices.length) browserVoices = all;
-        if (!browserVoices.length) return;
 
-        voiceEl.innerHTML = '';
-        browserVoices.forEach(function (v, i) {
-          var o = document.createElement('option');
-          o.value = i; o.textContent = v.name + ' (' + v.lang + ')';
-          voiceEl.appendChild(o);
-        });
-        say(browserVoices.length + ' local voices — varies by browser.');
-      };
-      load();
-      speechSynthesis.onvoiceschanged = load;
-    }
+    setProgress(null);
+    [textEl, voiceEl, rate, speakBtn].forEach(el => { el.disabled = false; });
+    say('Ready. Same voice for everyone, works offline from here.');
+    textEl.focus();
+  } catch (e) {
+    setProgress(null);
+    say('');
+    fail('Could not load the voice model: ' + e.message);
   }
-
-  // ── UI wiring ────────────────────────────────────────────────
-  function updateCount() {
-    var n = textEl.value.length;
-    charsEl.textContent = n;
-    charsEl.style.color = n > MAX ? 'var(--errink)' : '';
-  }
-  textEl.addEventListener('input', updateCount);
-  updateCount();
-
-  rate.oninput  = function () { $('rateVal').textContent  = (+rate.value).toFixed(1); };
-  pitch.oninput = function () { $('pitchVal').textContent = pitch.value; };
-
-  function busy(on) {
-    speakBtn.disabled = on;
-    stopBtn.disabled = !on;
-    speakBtn.innerHTML = on ? '<span class="spin"></span>Working…' : '▶ Speak';
-  }
-
-  // ── Speak ────────────────────────────────────────────────────
-  speakBtn.onclick = function () {
-    clearErr();
-    var text = textEl.value.trim();
-    if (!text) { say('Nothing to read — paste some text first.'); textEl.focus(); return; }
-    if (text.length > MAX) { fail('Text is ' + text.length + ' characters; the limit is ' + MAX + '.'); return; }
-
-    useWorker ? speakViaWorker(text) : speakViaBrowser(text);
-  };
-
-  function speakViaWorker(text) {
-    busy(true);
-    say('Synthesizing…');
-    controller = new AbortController();
-
-    fetch(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: text,
-        voice: voiceEl.value,
-        rate: +rate.value,
-        pitch: +pitch.value
-      }),
-      signal: controller.signal
-    })
-      .then(function (r) {
-        if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
-        return r.blob();
-      })
-      .then(function (blob) {
-        if (currentUrl) URL.revokeObjectURL(currentUrl);
-        currentUrl = URL.createObjectURL(blob);
-        player.src = currentUrl;
-        return player.play();
-      })
-      .then(function () {
-        say('Playing ' + voiceEl.options[voiceEl.selectedIndex].textContent + '…');
-      })
-      .catch(function (e) {
-        busy(false);
-        if (e.name === 'AbortError') { say('Stopped.'); return; }
-        fail(e.message);
-        say('');
-      });
-  }
-
-  function speakViaBrowser(text) {
-    speechSynthesis.cancel();
-    var u = new SpeechSynthesisUtterance(text);
-    var v = browserVoices[voiceEl.value];
-    if (v) { u.voice = v; u.lang = v.lang; }
-    u.rate = +rate.value;
-    u.pitch = 1 + (+pitch.value / 50);     // slider is -50..50, API wants 0..2
-    u.onstart = function () { busy(true); say('Speaking with ' + (v ? v.name : 'default') + '…'); };
-    u.onend   = function () { busy(false); say('Done.'); };
-    u.onerror = function (e) {
-      busy(false);
-      say(e.error === 'interrupted' || e.error === 'canceled' ? 'Stopped.' : 'Error: ' + e.error);
-    };
-    speechSynthesis.speak(u);
-  }
-
-  // ── Stop ─────────────────────────────────────────────────────
-  stopBtn.onclick = function () {
-    if (controller) { controller.abort(); controller = null; }
-    player.pause();
-    player.currentTime = 0;
-    if (!useWorker && window.speechSynthesis) speechSynthesis.cancel();
-    busy(false);
-    say('Stopped.');
-  };
-
-  player.onended = function () { busy(false); say('Done.'); };
-  player.onerror = function () { busy(false); fail('Could not play the returned audio.'); };
-
-  // Chrome silently cuts off long utterances unless nudged. Browser path only.
-  setInterval(function () {
-    if (!useWorker && window.speechSynthesis &&
-        speechSynthesis.speaking && !speechSynthesis.paused) {
-      speechSynthesis.pause(); speechSynthesis.resume();
-    }
-  }, 10000);
 })();
+
+// ── UI ───────────────────────────────────────────────────────
+function updateCount() {
+  const n = textEl.value.length;
+  charsEl.textContent = n;
+  charsEl.style.color = n > MAX ? 'var(--errink)' : '';
+}
+textEl.addEventListener('input', updateCount);
+updateCount();
+
+rate.oninput = () => { $('rateVal').textContent = (+rate.value).toFixed(1); };
+
+function busy(on) {
+  speakBtn.disabled = on;
+  stopBtn.disabled = !on;
+  speakBtn.innerHTML = on ? '<span class="spin"></span>Generating…' : '▶ Speak';
+}
+
+// ── Speak ────────────────────────────────────────────────────
+speakBtn.onclick = async () => {
+  clearErr();
+  const text = textEl.value.trim();
+  if (!text) { say('Nothing to read — paste some text first.'); textEl.focus(); return; }
+  if (text.length > MAX) { fail(`Text is ${text.length} characters; the limit is ${MAX}.`); return; }
+
+  cancelled = false;
+  busy(true);
+  say('Generating audio…');
+  dl.classList.add('hide');
+
+  try {
+    const audio = await tts.generate(text, {
+      voice: voiceEl.value,
+      speed: +rate.value,
+    });
+    if (cancelled) { busy(false); return; }
+
+    if (currentUrl) URL.revokeObjectURL(currentUrl);
+    currentUrl = URL.createObjectURL(audio.toBlob());
+    player.src = currentUrl;
+    dl.href = currentUrl;
+    dl.classList.remove('hide');
+
+    await player.play();
+    say('Playing ' + voiceEl.options[voiceEl.selectedIndex].textContent + '…');
+  } catch (e) {
+    busy(false);
+    if (!cancelled) { fail('Generation failed: ' + e.message); say(''); }
+  }
+};
+
+stopBtn.onclick = () => {
+  cancelled = true;
+  player.pause();
+  player.currentTime = 0;
+  busy(false);
+  say('Stopped.');
+};
+
+player.onended = () => { busy(false); say('Done.'); };
+player.onerror  = () => { busy(false); fail('Could not play the generated audio.'); };
 </script>
 </body>
 </html>
