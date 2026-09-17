@@ -16,7 +16,9 @@ const MAX_CHARS = 4500;
 const DEFAULT_VOICE = 'en-US-Neural2-D';
 
 // Only allow Google voice names, so the key can't be used for arbitrary calls.
-const VOICE_RE = /^[a-z]{2}-[A-Z]{2}-[A-Za-z0-9]+-[A-Z]$/;
+// Covers en-US-Neural2-D, en-US-Studio-Q, en-US-Polyglot-1 and the longer
+// multi-part names like en-US-Chirp3-HD-Charon.
+const VOICE_RE = /^[a-z]{2}-[A-Z]{2}(?:-[A-Za-z0-9]+){1,3}$/;
 
 const cors = origin => ({
   'Access-Control-Allow-Origin': origin,
@@ -67,13 +69,18 @@ export default {
     const speakingRate = Math.min(2, Math.max(0.5, Number(body.rate) || 1));
     const pitch = Math.min(20, Math.max(-20, Number(body.pitch) || 0));
 
+    // Chirp voices reject pitch outright, so only send it to the families
+    // that accept it.
+    const audioConfig = { audioEncoding: 'MP3', speakingRate };
+    if (pitch && !voice.includes('Chirp')) audioConfig.pitch = pitch;
+
     const upstream = await fetch(`${ENDPOINT}?key=${env.GOOGLE_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         input: { text },
         voice: { languageCode, name: voice },
-        audioConfig: { audioEncoding: 'MP3', speakingRate, pitch },
+        audioConfig,
       }),
     });
 
