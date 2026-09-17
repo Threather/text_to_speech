@@ -1,0 +1,14 @@
+name = "liam-tts"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+[vars]
+# Azure region your Speech resource lives in, e.g. eastus, westeurope, southeastasia.
+AZURE_REGION = "eastus"
+
+# Lock the API to your site so nobody else can spend your Azure quota.
+# Use "*" only while testing locally.
+ALLOWED_ORIGIN = "https://threather.github.io"
+
+# AZURE_KEY is a secret, never put it here. Set it with:
+#   npx wrangler secret put AZURE_KEY
