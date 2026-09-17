@@ -137,6 +137,7 @@ const dl = $('dl');
 let tts = null;
 let cancelled = false;
 let running = false;
+let unlocked = false;     // iOS: the audio element must be started by a gesture once
 let urls = [];            // object URLs for the queued chunks
 let pcm = [];             // raw samples, kept so Download can stitch one file
 let sampleRate = 24000;
@@ -251,6 +252,22 @@ function busy(on) {
   speakBtn.innerHTML = on ? '<span class="spin"></span>Speaking…' : '▶ Speak';
 }
 
+// iOS Safari only allows playback that begins inside a user gesture. Generation is
+// async, so by the time audio exists the gesture is long gone. Priming the element
+// with a silent clip during the click marks it as user-initiated for the rest of the
+// session — after this, changing .src and calling play() is allowed.
+const SILENT_WAV =
+  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
+function unlockAudio() {
+  if (unlocked) return;
+  try {
+    player.src = SILENT_WAV;
+    const p = player.play();
+    if (p) p.then(() => { unlocked = true; }).catch(() => {});
+  } catch {}
+}
+
 function playUrl(url) {
   return new Promise((resolve, reject) => {
     player.src = url;
@@ -268,6 +285,7 @@ function cleanup() {
 // ── Speak ────────────────────────────────────────────────────
 speakBtn.onclick = async () => {
   if (running) return;
+  unlockAudio();          // must happen synchronously, before any await
   clearErr();
   const text = textEl.value.trim();
   if (!text) { say('Nothing to read — paste some text first.'); textEl.focus(); return; }
@@ -321,7 +339,12 @@ speakBtn.onclick = async () => {
       say('Done.');
     }
   } catch (e) {
-    if (!cancelled) { fail('Generation failed: ' + e.message); say(''); }
+    if (!cancelled) {
+      fail(e.name === 'NotAllowedError'
+        ? 'Your browser blocked autoplay. Tap Speak again to start playback.'
+        : 'Generation failed: ' + e.message);
+      say('');
+    }
   } finally {
     // Swallow the abandoned generation so it can't surface as an unhandled rejection.
     if (pending) pending.catch(() => {});
