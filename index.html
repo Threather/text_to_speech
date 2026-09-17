@@ -10,6 +10,7 @@
     --line:#e2e0dc; --accent:#2f5bd8; --accent-ink:#fff;
     --shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px rgba(0,0,0,.06);
     --errbg:#fdeaea; --errline:#f5bcbc; --errink:#8a2020;
+    --warnbg:#fff4e5; --warnline:#ffd9a0; --warnink:#6b4a10;
     --track:#e8e6e2;
   }
   @media (prefers-color-scheme: dark){
@@ -18,6 +19,7 @@
       --line:#2e2e34; --accent:#7c9bff; --accent-ink:#10101a;
       --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3);
       --errbg:#2d1616; --errline:#5e2626; --errink:#ffb4b4;
+      --warnbg:#2b2113; --warnline:#5c4620; --warnink:#f0d5a8;
       --track:#2a2a30;
     }
   }
@@ -25,44 +27,46 @@
   body{
     margin:0; background:var(--bg); color:var(--ink);
     font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-    display:flex; justify-content:center; padding:48px 16px 64px;
+    display:flex; justify-content:center; padding:40px 16px 64px;
+    -webkit-text-size-adjust:100%;
   }
   main{width:100%; max-width:680px}
   h1{font-size:26px; letter-spacing:-.02em; margin:0 0 4px}
-  .sub{color:var(--muted); margin:0 0 28px; font-size:14px}
+  .sub{color:var(--muted); margin:0 0 24px; font-size:14px}
   .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:var(--shadow)}
   textarea{
     width:100%; min-height:180px; resize:vertical; padding:14px;
     background:transparent; color:var(--ink); border:1px solid var(--line);
-    border-radius:10px; font:inherit; line-height:1.6;
+    border-radius:10px; font:inherit; line-height:1.6; font-size:16px;
   }
   textarea:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
-  textarea:disabled{opacity:.6}
   label{font-size:12px; color:var(--muted); display:block; margin-bottom:5px; letter-spacing:.02em}
   select{
-    padding:9px 10px; border-radius:9px; border:1px solid var(--line);
-    background:var(--panel); color:var(--ink); font:inherit; width:100%;
+    padding:10px; border-radius:9px; border:1px solid var(--line);
+    background:var(--panel); color:var(--ink); font:inherit; font-size:16px; width:100%;
   }
   .row{margin-top:14px}
-  .sliders{display:flex; gap:16px; margin-top:14px}
-  .sliders>div{flex:1}
+  .sliders{display:flex; gap:16px; margin-top:14px; flex-wrap:wrap}
+  .sliders>div{flex:1; min-width:140px}
   input[type=range]{width:100%; accent-color:var(--accent)}
   .buttons{display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; align-items:center}
   button{
-    padding:11px 20px; border-radius:9px; border:1px solid var(--line);
+    padding:12px 20px; border-radius:9px; border:1px solid var(--line);
     background:var(--panel); color:var(--ink); font:inherit; font-weight:500; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
   }
   button:hover:not(:disabled){border-color:var(--muted)}
   button.primary{background:var(--accent); color:var(--accent-ink); border-color:transparent}
-  button.primary:hover:not(:disabled){filter:brightness(1.08)}
   button:disabled{opacity:.45; cursor:not-allowed}
   a.dl{text-decoration:none}
   .count{margin-left:auto; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
   .status{margin-top:14px; font-size:13px; color:var(--muted); min-height:20px}
   .bar{height:4px; background:var(--track); border-radius:2px; overflow:hidden; margin-top:12px}
-  .bar>i{display:block; height:100%; width:0; background:var(--accent); transition:width .25s ease}
+  .bar>i{display:block; height:100%; width:0; background:var(--accent); transition:width .3s ease}
   .banner{padding:12px 14px; border-radius:10px; font-size:14px; border:1px solid; margin-top:14px}
   .banner.err{background:var(--errbg); border-color:var(--errline); color:var(--errink)}
+  .banner.warn{background:var(--warnbg); border-color:var(--warnline); color:var(--warnink); margin:0 0 18px}
+  code{font-family:ui-monospace,Consolas,monospace; font-size:.9em}
   .hide{display:none}
   .spin{display:inline-block; width:11px; height:11px; border:2px solid currentColor;
         border-right-color:transparent; border-radius:50%; animation:sp .7s linear infinite;
@@ -76,293 +80,420 @@
   <h1>Speak</h1>
   <p class="sub">Paste text, pick a voice, press play.</p>
 
+  <div id="setup" class="banner warn hide">
+    <strong>Not connected.</strong> Set <code>WORKER_URL</code> in the script to your
+    Cloudflare Worker. Falling back to this browser's built-in voices for now.
+  </div>
+
   <div class="card">
-    <textarea id="text" placeholder="Paste or type your text here…" spellcheck="false" disabled></textarea>
+    <textarea id="text" placeholder="Paste or type your text here…" spellcheck="false"></textarea>
 
     <div class="row">
       <label for="voice">Voice</label>
-      <select id="voice" disabled></select>
+      <select id="voice"></select>
     </div>
 
     <div class="sliders">
       <div>
         <label for="rate">Speed &middot; <span id="rateVal">1.0</span>&times;</label>
-        <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1" disabled>
+        <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1">
+      </div>
+      <div>
+        <label for="pitch">Pitch &middot; <span id="pitchVal">0</span></label>
+        <input type="range" id="pitch" min="-10" max="10" step="1" value="0">
       </div>
     </div>
 
     <div class="buttons">
-      <button id="speak" class="primary" disabled>▶ Speak</button>
+      <button id="speak" class="primary">▶ Speak</button>
       <button id="stop" disabled>⏹ Stop</button>
-      <a id="dl" class="dl hide" download="speech.wav"><button type="button">⬇ Download</button></a>
       <span class="count"><span id="chars">0</span> characters</span>
     </div>
 
     <div class="bar hide" id="bar"><i id="barFill"></i></div>
-    <div class="status" id="status">Loading the voice model…</div>
+    <div class="status" id="status">Ready.</div>
     <div id="error" class="banner err hide"></div>
   </div>
 
-  <audio id="player" class="hide"></audio>
-  <footer>Runs entirely in your browser. Nothing is uploaded.</footer>
+  <audio id="player" class="hide" playsinline preload="auto"></audio>
+  <footer id="foot"></footer>
 </main>
 
-<script type="module">
-import { KokoroTTS } from 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm';
+<script>
+(function () {
+  // ─────────────────────────────────────────────────────────────
+  // Your deployed Cloudflare Worker, e.g.
+  //   'https://liam-tts.your-name.workers.dev'
+  var WORKER_URL = 'https://tts.kevinpom1999.workers.dev';
+  // ─────────────────────────────────────────────────────────────
 
-const MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
+  // Google Cloud voices, grouped by family. Add any voice name from
+  // https://cloud.google.com/text-to-speech/docs/voices
+  //
+  // Cost/quality tiers differ — see the README before switching the default:
+  //   Chirp3-HD  newest, most natural
+  //   Neural2    excellent, generous free tier   (the default)
+  //   Studio     best for narration, small free tier, much pricier
+  //   Wavenet    older but still good
+  //   Standard   robotic, largest free tier
+  var VOICE_GROUPS = [
+    ['Chirp 3 HD — most natural', [
+      ['en-US-Chirp3-HD-Charon',     'Charon — US male'],
+      ['en-US-Chirp3-HD-Puck',       'Puck — US male'],
+      ['en-US-Chirp3-HD-Fenrir',     'Fenrir — US male'],
+      ['en-US-Chirp3-HD-Orus',       'Orus — US male'],
+      ['en-US-Chirp3-HD-Kore',       'Kore — US female'],
+      ['en-US-Chirp3-HD-Aoede',      'Aoede — US female'],
+      ['en-US-Chirp3-HD-Leda',       'Leda — US female'],
+      ['en-US-Chirp3-HD-Zephyr',     'Zephyr — US female'],
+      ['en-GB-Chirp3-HD-Charon',     'Charon — British male'],
+      ['en-GB-Chirp3-HD-Puck',       'Puck — British male'],
+      ['en-GB-Chirp3-HD-Kore',       'Kore — British female'],
+      ['en-AU-Chirp3-HD-Charon',     'Charon — Australian male'],
+      ['en-AU-Chirp3-HD-Kore',       'Kore — Australian female'],
+      ['en-IN-Chirp3-HD-Charon',     'Charon — Indian male'],
+      ['en-IN-Chirp3-HD-Kore',       'Kore — Indian female']
+    ]],
+    ['Neural2 — recommended', [
+      ['en-US-Neural2-D', 'Neural D — US male'],
+      ['en-US-Neural2-A', 'Neural A — US male'],
+      ['en-US-Neural2-I', 'Neural I — US male'],
+      ['en-US-Neural2-J', 'Neural J — US male'],
+      ['en-US-Neural2-C', 'Neural C — US female'],
+      ['en-US-Neural2-E', 'Neural E — US female'],
+      ['en-US-Neural2-F', 'Neural F — US female'],
+      ['en-US-Neural2-G', 'Neural G — US female'],
+      ['en-US-Neural2-H', 'Neural H — US female'],
+      ['en-GB-Neural2-B', 'Neural B — British male'],
+      ['en-GB-Neural2-D', 'Neural D — British male'],
+      ['en-GB-Neural2-A', 'Neural A — British female'],
+      ['en-GB-Neural2-C', 'Neural C — British female'],
+      ['en-GB-Neural2-F', 'Neural F — British female'],
+      ['en-AU-Neural2-B', 'Neural B — Australian male'],
+      ['en-AU-Neural2-D', 'Neural D — Australian male'],
+      ['en-AU-Neural2-A', 'Neural A — Australian female'],
+      ['en-AU-Neural2-C', 'Neural C — Australian female'],
+      ['en-IN-Neural2-B', 'Neural B — Indian male'],
+      ['en-IN-Neural2-C', 'Neural C — Indian male'],
+      ['en-IN-Neural2-A', 'Neural A — Indian female'],
+      ['en-IN-Neural2-D', 'Neural D — Indian female']
+    ]],
+    ['Studio — narration (pricier)', [
+      ['en-US-Studio-Q', 'Studio Q — US male'],
+      ['en-US-Studio-O', 'Studio O — US female'],
+      ['en-GB-Studio-B', 'Studio B — British male'],
+      ['en-GB-Studio-C', 'Studio C — British female']
+    ]],
+    ['News / Polyglot', [
+      ['en-US-News-N',     'News N — US male'],
+      ['en-US-News-K',     'News K — US female'],
+      ['en-US-News-L',     'News L — US female'],
+      ['en-US-Polyglot-1', 'Polyglot — US male'],
+      ['en-GB-News-J',     'News J — British male'],
+      ['en-GB-News-K',     'News K — British female']
+    ]],
+    ['WaveNet', [
+      ['en-US-Wavenet-D', 'Wavenet D — US male'],
+      ['en-US-Wavenet-B', 'Wavenet B — US male'],
+      ['en-US-Wavenet-J', 'Wavenet J — US male'],
+      ['en-US-Wavenet-F', 'Wavenet F — US female'],
+      ['en-US-Wavenet-H', 'Wavenet H — US female'],
+      ['en-GB-Wavenet-B', 'Wavenet B — British male'],
+      ['en-GB-Wavenet-D', 'Wavenet D — British male'],
+      ['en-GB-Wavenet-A', 'Wavenet A — British female'],
+      ['en-AU-Wavenet-B', 'Wavenet B — Australian male'],
+      ['en-AU-Wavenet-C', 'Wavenet C — Australian female']
+    ]],
+    ['In-browser — no server, 86MB first use', [
+      ['kokoro:am_michael', 'Michael — American male'],
+      ['kokoro:am_adam',    'Adam — American male'],
+      ['kokoro:am_echo',    'Echo — American male'],
+      ['kokoro:bm_george',  'George — British male'],
+      ['kokoro:bm_lewis',   'Lewis — British male'],
+      ['kokoro:af_heart',   'Heart — American female'],
+      ['kokoro:af_bella',   'Bella — American female'],
+      ['kokoro:bf_emma',    'Emma — British female']
+    ]],
+    ['Standard — cheapest', [
+      ['en-US-Standard-D', 'Standard D — US male'],
+      ['en-US-Standard-B', 'Standard B — US male'],
+      ['en-US-Standard-C', 'Standard C — US female'],
+      ['en-US-Standard-F', 'Standard F — US female'],
+      ['en-GB-Standard-B', 'Standard B — British male'],
+      ['en-GB-Standard-A', 'Standard A — British female']
+    ]]
+  ];
 
-// Text of any length is split into pieces this size, generated one at a time.
-// Playback starts as soon as the first piece is ready, so long documents don't
-// mean a long wait before you hear anything.
-const CHUNK_TARGET = 350;
+  // The first chunk is deliberately small so playback starts fast; later chunks are
+  // bigger because they're fetched while earlier audio is still playing.
+  var DEFAULT_VOICE = 'en-US-Chirp3-HD-Charon';
 
-const VOICES = [
-  ['am_michael', 'Michael — American male'],
-  ['am_adam',    'Adam — American male'],
-  ['am_echo',    'Echo — American male'],
-  ['bm_george',  'George — British male'],
-  ['bm_lewis',   'Lewis — British male'],
-  ['af_heart',   'Heart — American female'],
-  ['af_bella',   'Bella — American female'],
-  ['bf_emma',    'Emma — British female'],
-];
+  var FIRST_CHUNK = 220;
+  var CHUNK = 700;
+  var LOOKAHEAD = 2;        // chunks fetched ahead of what's playing
 
-const $ = id => document.getElementById(id);
-const textEl = $('text'), voiceEl = $('voice'), statusEl = $('status'), errEl = $('error');
-const speakBtn = $('speak'), stopBtn = $('stop'), player = $('player');
-const rate = $('rate'), charsEl = $('chars'), bar = $('bar'), barFill = $('barFill');
-const dl = $('dl');
+  var $ = function (id) { return document.getElementById(id); };
+  var textEl = $('text'), voiceEl = $('voice'), statusEl = $('status'), errEl = $('error');
+  var speakBtn = $('speak'), stopBtn = $('stop'), player = $('player');
+  var rate = $('rate'), pitch = $('pitch'), charsEl = $('chars');
+  var bar = $('bar'), barFill = $('barFill');
 
-let tts = null;
-let cancelled = false;
-let running = false;
-let unlocked = false;     // iOS: the audio element must be started by a gesture once
-let urls = [];            // object URLs for the queued chunks
-let pcm = [];             // raw samples, kept so Download can stitch one file
-let sampleRate = 24000;
+  var useWorker = !!WORKER_URL;
+  var browserVoices = [];
+  var cancelled = false, running = false, unlocked = false;
+  var urls = [];
 
-const say = m => { statusEl.textContent = m; };
-const fail = m => { errEl.textContent = m; errEl.classList.remove('hide'); };
-const clearErr = () => errEl.classList.add('hide');
+  function say(m) { statusEl.textContent = m; }
+  function fail(m) { errEl.textContent = m; errEl.classList.remove('hide'); }
+  function clearErr() { errEl.classList.add('hide'); }
+  function progress(p) {
+    if (p == null) { bar.classList.add('hide'); return; }
+    bar.classList.remove('hide');
+    barFill.style.width = Math.max(0, Math.min(100, p)) + '%';
+  }
 
-function setProgress(pct) {
-  if (pct == null) { bar.classList.add('hide'); return; }
-  bar.classList.remove('hide');
-  barFill.style.width = Math.max(0, Math.min(100, pct)) + '%';
-}
+  // ── Voices ───────────────────────────────────────────────────
+  if (useWorker) {
+    VOICE_GROUPS.forEach(function (g) {
+      var grp = document.createElement('optgroup');
+      grp.label = g[0];
+      g[1].forEach(function (v) {
+        var o = document.createElement('option');
+        o.value = v[0]; o.textContent = v[1];
+        grp.appendChild(o);
+      });
+      voiceEl.appendChild(grp);
+    });
+    voiceEl.value = DEFAULT_VOICE;
+    $('foot').textContent = 'Same voice for every visitor, on every browser.';
+  } else {
+    $('setup').classList.remove('hide');
+    if (window.speechSynthesis) {
+      var load = function () {
+        var all = speechSynthesis.getVoices();
+        browserVoices = all.filter(function (v) { return /^en/i.test(v.lang); });
+        if (!browserVoices.length) browserVoices = all;
+        if (!browserVoices.length) return;
+        voiceEl.innerHTML = '';
+        browserVoices.forEach(function (v, i) {
+          var o = document.createElement('option');
+          o.value = i; o.textContent = v.name + ' (' + v.lang + ')';
+          voiceEl.appendChild(o);
+        });
+      };
+      load();
+      speechSynthesis.onvoiceschanged = load;   // getVoices() is empty on first call
+    }
+  }
 
-// ── Split text without cutting sentences in half ─────────────
-function chunkText(text) {
-  // Sentence-ish boundaries, keeping the punctuation attached.
-  const sentences = text.replace(/\s+/g, ' ').trim().match(/[^.!?…]+[.!?…]+["')\]]*|\S+$/g) || [];
-  const out = [];
-  let buf = '';
+  // ── Split text on sentence boundaries ────────────────────────
+  function chunkText(t) {
+    var sentences = t.replace(/\s+/g, ' ').trim()
+      .match(/[^.!?…]+[.!?…]+["'’)\]]*|\S[^.!?…]*$/g) || [];
+    var out = [], buf = '', limit = FIRST_CHUNK;
 
-  for (let s of sentences) {
-    s = s.trim();
-    if (!s) continue;
+    for (var i = 0; i < sentences.length; i++) {
+      var s = sentences[i].trim();
+      if (!s) continue;
 
-    // A single sentence longer than the target gets broken at commas, then spaces.
-    if (s.length > CHUNK_TARGET * 2) {
-      if (buf) { out.push(buf); buf = ''; }
-      let rest = s;
-      while (rest.length > CHUNK_TARGET * 2) {
-        let cut = rest.lastIndexOf(',', CHUNK_TARGET);
-        if (cut < CHUNK_TARGET / 2) cut = rest.lastIndexOf(' ', CHUNK_TARGET);
-        if (cut < 1) cut = CHUNK_TARGET;
-        out.push(rest.slice(0, cut + 1).trim());
-        rest = rest.slice(cut + 1);
+      // Break an over-long sentence at a comma, then at a space.
+      while (s.length > limit * 2) {
+        if (buf) { out.push(buf); buf = ''; limit = CHUNK; }
+        var cut = s.lastIndexOf(',', limit);
+        if (cut < limit / 3) cut = s.lastIndexOf(' ', limit);
+        if (cut < 1) cut = limit;
+        out.push(s.slice(0, cut + 1).trim());
+        s = s.slice(cut + 1).trim();
+        limit = CHUNK;
       }
-      if (rest.trim()) buf = rest.trim();
-      continue;
+
+      if (buf && (buf + ' ' + s).length > limit) {
+        out.push(buf); buf = s; limit = CHUNK;
+      } else {
+        buf = buf ? buf + ' ' + s : s;
+      }
+    }
+    if (buf) out.push(buf);
+    return out;
+  }
+
+  // ── iOS: audio must be started by a user gesture ─────────────
+  // Generation is async, so by playback time the gesture is gone. Priming the element
+  // with a silent clip during the tap keeps it playable for the rest of the session.
+  var SILENT = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tAwAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA//////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAASDs90hvAAAAAAAAAAAAAAAAAAAA//sQxAADwAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+
+  function unlock() {
+    if (unlocked) return;
+    try {
+      player.src = SILENT;
+      var p = player.play();
+      if (p && p.then) p.then(function () { unlocked = true; }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function playUrl(url) {
+    return new Promise(function (resolve, reject) {
+      player.src = url;
+      player.onended = resolve;
+      player.onerror = function () { reject(new Error('Playback failed')); };
+      var p = player.play();
+      if (p && p.catch) p.catch(reject);
+    });
+  }
+
+  // Kokoro runs in the browser. The model is ~86MB, so it's only fetched the
+  // first time someone actually picks one of those voices.
+  var kokoro = null;
+  function loadKokoro() {
+    if (kokoro) return kokoro;
+    say('Downloading voice model… (one time, ~86MB)');
+    progress(0);
+    kokoro = import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm')
+      .then(function (m) {
+        return m.KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
+          dtype: 'q8',
+          device: 'wasm',
+          progress_callback: function (p) {
+            if (p.status === 'progress' && p.total) {
+              var pct = (p.loaded / p.total) * 100;
+              progress(pct);
+              say('Downloading voice model… ' + Math.round(pct) + '% (one time only)');
+            }
+          }
+        });
+      })
+      .catch(function (e) { kokoro = null; throw e; });
+    return kokoro;
+  }
+
+  function kokoroChunk(text) {
+    return loadKokoro().then(function (tts) {
+      progress(null);
+      return tts.generate(text, {
+        voice: voiceEl.value.slice(7),        // strip the "kokoro:" prefix
+        speed: +rate.value
+      });
+    }).then(function (audio) {
+      var u = URL.createObjectURL(audio.toBlob());
+      urls.push(u);
+      return u;
+    });
+  }
+
+  function fetchChunk(text) {
+    if (voiceEl.value.indexOf('kokoro:') === 0) return kokoroChunk(text);
+
+    return fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: text, voice: voiceEl.value,
+        rate: +rate.value, pitch: +pitch.value
+      })
+    }).then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+      return r.blob();
+    }).then(function (b) {
+      var u = URL.createObjectURL(b);
+      urls.push(u);
+      return u;
+    });
+  }
+
+  // ── UI ───────────────────────────────────────────────────────
+  textEl.addEventListener('input', function () { charsEl.textContent = textEl.value.length; });
+  rate.oninput  = function () { $('rateVal').textContent  = (+rate.value).toFixed(1); };
+  pitch.oninput = function () { $('pitchVal').textContent = pitch.value; };
+
+  function busy(on) {
+    speakBtn.disabled = on;
+    stopBtn.disabled = !on;
+    speakBtn.innerHTML = on ? '<span class="spin"></span>Speaking…' : '▶ Speak';
+  }
+
+  function cleanup() {
+    urls.forEach(function (u) { URL.revokeObjectURL(u); });
+    urls = [];
+  }
+
+  // ── Speak ────────────────────────────────────────────────────
+  speakBtn.onclick = function () {
+    if (running) return;
+    unlock();                       // synchronous, inside the gesture — required by iOS
+    clearErr();
+
+    var text = textEl.value.trim();
+    if (!text) { say('Nothing to read — paste some text first.'); textEl.focus(); return; }
+
+    cancelled = false; running = true;
+    busy(true); cleanup();
+
+    if (!useWorker) return speakLocal(text);
+
+    var chunks = chunkText(text);
+    var label = voiceEl.options[voiceEl.selectedIndex].textContent;
+    var queue = [];                 // promises, one per chunk, started ahead of playback
+
+    say('Connecting…');
+    progress(0);
+
+    for (var i = 0; i < Math.min(LOOKAHEAD, chunks.length); i++) {
+      queue[i] = fetchChunk(chunks[i]);
     }
 
-    if (buf && (buf + ' ' + s).length > CHUNK_TARGET) { out.push(buf); buf = s; }
-    else { buf = buf ? buf + ' ' + s : s; }
+    var i2 = 0;
+    (function next() {
+      if (cancelled || i2 >= chunks.length) {
+        if (!cancelled) { say('Done.'); progress(100); setTimeout(function(){progress(null);}, 600); }
+        busy(false); running = false;
+        return;
+      }
+
+      var idx = i2++;
+      // Keep the pipeline topped up so the next chunk is ready before this one ends.
+      var ahead = idx + LOOKAHEAD;
+      if (ahead < chunks.length && !queue[ahead]) queue[ahead] = fetchChunk(chunks[ahead]);
+
+      queue[idx].then(function (url) {
+        if (cancelled) throw new Error('cancelled');
+        say(chunks.length > 1
+          ? label + ' — part ' + (idx + 1) + ' of ' + chunks.length
+          : 'Playing ' + label + '…');
+        progress((idx / chunks.length) * 100);
+        return playUrl(url);
+      }).then(next).catch(function (e) {
+        busy(false); running = false; progress(null);
+        if (cancelled) { say('Stopped.'); return; }
+        fail(e.name === 'NotAllowedError'
+          ? 'Your browser blocked autoplay. Tap Speak again.'
+          : e.message);
+        say('');
+      });
+    })();
+  };
+
+  function speakLocal(text) {
+    if (!window.speechSynthesis) { fail('No speech support in this browser.'); busy(false); running = false; return; }
+    speechSynthesis.cancel();
+    var u = new SpeechSynthesisUtterance(text);
+    var v = browserVoices[voiceEl.value];
+    if (v) { u.voice = v; u.lang = v.lang; }
+    u.rate = +rate.value;
+    u.pitch = 1 + (+pitch.value / 10);
+    u.onstart = function () { say('Speaking with ' + (v ? v.name : 'default') + '…'); };
+    u.onend   = function () { busy(false); running = false; say('Done.'); };
+    u.onerror = function () { busy(false); running = false; say('Stopped.'); };
+    speechSynthesis.speak(u);
   }
-  if (buf) out.push(buf);
-  return out;
-}
 
-// ── Minimal 16-bit PCM WAV encoder, for the Download button ──
-function encodeWav(chunks, rate) {
-  const total = chunks.reduce((n, c) => n + c.length, 0);
-  const buf = new ArrayBuffer(44 + total * 2);
-  const view = new DataView(buf);
-  const str = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
-
-  str(0, 'RIFF'); view.setUint32(4, 36 + total * 2, true); str(8, 'WAVE');
-  str(12, 'fmt '); view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-  view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
-  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-  str(36, 'data'); view.setUint32(40, total * 2, true);
-
-  let off = 44;
-  for (const c of chunks) {
-    for (let i = 0; i < c.length; i++, off += 2) {
-      const v = Math.max(-1, Math.min(1, c[i]));
-      view.setInt16(off, v < 0 ? v * 0x8000 : v * 0x7fff, true);
-    }
-  }
-  return new Blob([buf], { type: 'audio/wav' });
-}
-
-// ── Load the model ───────────────────────────────────────────
-(async function init() {
-  try {
-    setProgress(0);
-    tts = await KokoroTTS.from_pretrained(MODEL, {
-      dtype: 'q8',
-      device: 'wasm',
-      progress_callback: (p) => {
-        if (p.status === 'progress' && p.total) {
-          const pct = (p.loaded / p.total) * 100;
-          setProgress(pct);
-          say(`Downloading voice model… ${Math.round(pct)}% (one time only)`);
-        }
-      },
-    });
-
-    VOICES.forEach(([id, label]) => {
-      const o = document.createElement('option');
-      o.value = id; o.textContent = label;
-      voiceEl.appendChild(o);
-    });
-
-    setProgress(null);
-    [textEl, voiceEl, rate, speakBtn].forEach(el => { el.disabled = false; });
-    say('Ready. Paste any length — playback starts right away.');
-    textEl.focus();
-  } catch (e) {
-    setProgress(null);
-    say('');
-    fail('Could not load the voice model: ' + e.message);
-  }
+  stopBtn.onclick = function () {
+    cancelled = true;
+    player.pause(); player.currentTime = 0; player.onended = null;
+    if (!useWorker && window.speechSynthesis) speechSynthesis.cancel();
+    busy(false); running = false; progress(null);
+    say('Stopped.');
+  };
 })();
-
-// ── UI ───────────────────────────────────────────────────────
-textEl.addEventListener('input', () => { charsEl.textContent = textEl.value.length; });
-rate.oninput = () => { $('rateVal').textContent = (+rate.value).toFixed(1); };
-
-function busy(on) {
-  speakBtn.disabled = on;
-  stopBtn.disabled = !on;
-  speakBtn.innerHTML = on ? '<span class="spin"></span>Speaking…' : '▶ Speak';
-}
-
-// iOS Safari only allows playback that begins inside a user gesture. Generation is
-// async, so by the time audio exists the gesture is long gone. Priming the element
-// with a silent clip during the click marks it as user-initiated for the rest of the
-// session — after this, changing .src and calling play() is allowed.
-const SILENT_WAV =
-  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-
-function unlockAudio() {
-  if (unlocked) return;
-  try {
-    player.src = SILENT_WAV;
-    const p = player.play();
-    if (p) p.then(() => { unlocked = true; }).catch(() => {});
-  } catch {}
-}
-
-function playUrl(url) {
-  return new Promise((resolve, reject) => {
-    player.src = url;
-    player.onended = resolve;
-    player.onerror = () => reject(new Error('playback failed'));
-    player.play().catch(reject);
-  });
-}
-
-function cleanup() {
-  urls.forEach(URL.revokeObjectURL);
-  urls = [];
-}
-
-// ── Speak ────────────────────────────────────────────────────
-speakBtn.onclick = async () => {
-  if (running) return;
-  unlockAudio();          // must happen synchronously, before any await
-  clearErr();
-  const text = textEl.value.trim();
-  if (!text) { say('Nothing to read — paste some text first.'); textEl.focus(); return; }
-
-  cancelled = false;
-  running = true;
-  busy(true);
-  dl.classList.add('hide');
-  cleanup();
-  pcm = [];
-
-  const chunks = chunkText(text);
-  const voice = voiceEl.value;
-  const speed = +rate.value;
-  const voiceLabel = voiceEl.options[voiceEl.selectedIndex].textContent;
-
-  // Generation runs ahead of playback: while chunk N plays, N+1 is being made.
-  let pending = null;
-  const makeChunk = (i) => tts.generate(chunks[i], { voice, speed });
-
-  try {
-    setProgress(0);
-    pending = makeChunk(0);
-
-    for (let i = 0; i < chunks.length; i++) {
-      if (cancelled) break;
-
-      say(chunks.length > 1
-        ? `${voiceLabel} — part ${i + 1} of ${chunks.length}`
-        : `Playing ${voiceLabel}…`);
-
-      const audio = await pending;
-      if (cancelled) break;
-
-      sampleRate = audio.sampling_rate || sampleRate;
-      pcm.push(audio.audio);
-
-      // Kick off the next one before playing this one, so there's no gap.
-      pending = (i + 1 < chunks.length) ? makeChunk(i + 1) : null;
-
-      const url = URL.createObjectURL(audio.toBlob());
-      urls.push(url);
-
-      setProgress(((i + 1) / chunks.length) * 100);
-      await playUrl(url);
-    }
-
-    if (!cancelled) {
-      dl.href = URL.createObjectURL(encodeWav(pcm, sampleRate));
-      dl.classList.remove('hide');
-      say('Done.');
-    }
-  } catch (e) {
-    if (!cancelled) {
-      fail(e.name === 'NotAllowedError'
-        ? 'Your browser blocked autoplay. Tap Speak again to start playback.'
-        : 'Generation failed: ' + e.message);
-      say('');
-    }
-  } finally {
-    // Swallow the abandoned generation so it can't surface as an unhandled rejection.
-    if (pending) pending.catch(() => {});
-    setProgress(null);
-    busy(false);
-    running = false;
-  }
-};
-
-stopBtn.onclick = () => {
-  cancelled = true;
-  player.pause();
-  player.currentTime = 0;
-  player.onended = null;
-  busy(false);
-  setProgress(null);
-  say('Stopped.');
-};
 </script>
 </body>
 </html>
