@@ -85,6 +85,11 @@ than failing. This hid the Chirp 3 HD voices for a while.
 
 **Chirp voices reject `pitch`.** The Worker omits it for them.
 
+**Audio encoding matters — use LINEAR16.** Google's plain `MP3` encoding is 32kbps and
+audibly dulls the HD voices; confirmed by ear against the same line in both. `MP3_64_KBPS`
+exists only in the v1beta1 API and returns a 400 on v1. LINEAR16 at 24kHz is the model's
+own output, ~12x larger (267KB vs 23KB for one sentence) but no compression loss.
+
 **iOS Safari needs the audio element unlocked during the tap.** Generation is async, so by
 playback time the user gesture is gone. The page plays a silent clip synchronously inside
 the click handler to keep the element playable. Every iOS browser is WebKit, so this covers
