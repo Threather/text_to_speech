@@ -941,46 +941,36 @@
   }
 
   // ── Free-tier meter ───────────────────────────────────────────────────
-  // Google bills by characters sent and gives 1M a month, but the console has
-  // no live "remaining" figure. Count it here instead. Per browser, per month,
-  // and only what this site sent — in-browser voices are free and don't count.
-  var FREE_LIMIT = 1000000;
+  // The 1M characters a month is one shared pool for everyone using this site,
+  // so the count lives in the Worker rather than in each browser. Google has no
+  // live "remaining" figure of its own; this is the closest thing to one.
+  var quotaBusy = false;
 
-  function thisMonth() {
-    var d = new Date();
-    return d.getFullYear() + '-' + (d.getMonth() + 1);
+  function refreshQuota() {
+    if (!useWorker || quotaBusy) return;
+    quotaBusy = true;
+    fetch(WORKER_URL + '/usage')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d) renderQuota(d); })
+      .catch(function () {})
+      .finally(function () { quotaBusy = false; });
   }
 
-  function readUsed() {
-    try {
-      var u = JSON.parse(localStorage.getItem('speakUsage') || '{}');
-      return u.month === thisMonth() ? (u.chars || 0) : 0;   // resets each month
-    } catch (e) { return 0; }
-  }
+  function renderQuota(d) {
+    var limit = d.limit || 1000000;
+    var left = Math.max(0, limit - (d.used || 0));
+    var pct = Math.min(100, ((d.used || 0) / limit) * 100);
 
-  function addUsed(n) {
-    try {
-      localStorage.setItem('speakUsage',
-        JSON.stringify({ month: thisMonth(), chars: readUsed() + n }));
-    } catch (e) {}
-    renderQuota();
-  }
-
-  function renderQuota() {
-    var used = readUsed();
-    var left = Math.max(0, FREE_LIMIT - used);
-    var pct = Math.min(100, (used / FREE_LIMIT) * 100);
     $('quotaFill').style.width = pct + '%';
     $('quotaText').textContent =
-      left.toLocaleString() + ' of ' + FREE_LIMIT.toLocaleString() +
-      ' free characters left this month';
-    $('quotaText').style.color = left < FREE_LIMIT * 0.1 ? 'var(--errink)' : '';
+      left.toLocaleString() + ' of ' + limit.toLocaleString() +
+      ' free characters left this month' +
+      (d.shared === false ? ' (not shared — Worker has no counter)' : '');
+    $('quotaText').style.color = left < limit * 0.1 ? 'var(--errink)' : '';
   }
 
   function fetchChunk(text) {
     if (voiceEl.value.indexOf('kokoro:') === 0) return kokoroChunk(text);
-
-    addUsed(text.length);
 
     return fetch(WORKER_URL, {
       method: 'POST',
@@ -1073,6 +1063,7 @@
       if (cancelled || i2 >= curChunks.length) {
         if (!cancelled) { say('Done.'); progress(100); setTimeout(function(){progress(null);}, 600); }
         busy(false); running = false;
+        refreshQuota();          // the Worker counted what it synthesized
         return;
       }
 
@@ -1131,7 +1122,7 @@
     say('Stopped.');
   };
 
-  renderQuota();
+  refreshQuota();
 })();
 </script>
 </body>

@@ -11,6 +11,31 @@
 
 const ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 
+// Google's free tier, shared by everyone using this Worker.
+const FREE_LIMIT = 1000000;
+
+const usageKey = () => {
+  const d = new Date();
+  return `chars:${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`;
+};
+
+// Read-modify-write on KV, so two requests landing together can lose a count.
+// The meter is an estimate, not an invoice — Billing Reports is the real number.
+async function addUsage(env, n) {
+  if (!env.USAGE) return;
+  try {
+    const key = usageKey();
+    const cur = parseInt(await env.USAGE.get(key), 10) || 0;
+    await env.USAGE.put(key, String(cur + n), { expirationTtl: 60 * 60 * 24 * 70 });
+  } catch (e) {}
+}
+
+async function getUsage(env) {
+  if (!env.USAGE) return { used: 0, limit: FREE_LIMIT, shared: false };
+  const used = parseInt(await env.USAGE.get(usageKey()), 10) || 0;
+  return { used, limit: FREE_LIMIT, shared: true };
+}
+
 // Google's own cap is 5000 bytes per request. The page sends much smaller chunks.
 const MAX_CHARS = 4500;
 const DEFAULT_VOICE = 'en-US-Neural2-D';
@@ -224,7 +249,7 @@ async function readChain(startUrl, count) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const allowed = env.ALLOWED_ORIGIN || '*';
     const headers = cors(allowed);
     const url = new URL(request.url);
@@ -234,6 +259,12 @@ export default {
     const origin = request.headers.get('Origin');
     if (allowed !== '*' && origin && origin !== allowed) {
       return new Response('Forbidden origin', { status: 403, headers });
+    }
+
+    if (url.pathname === '/usage') {
+      return new Response(JSON.stringify(await getUsage(env)), {
+        headers: { ...headers, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      });
     }
 
     if (url.pathname === '/chain') {
@@ -288,6 +319,10 @@ export default {
     // v1beta1-only). LINEAR16 is the model's own output — bigger, but exact.
     const audioConfig = { audioEncoding: 'LINEAR16', sampleRateHertz: 24000, speakingRate };
     if (pitch && !voice.includes('Chirp')) audioConfig.pitch = pitch;
+
+    // Count against the shared free tier. Done off the response path so it
+    // never slows playback.
+    ctx.waitUntil(addUsage(env, text.length));
 
     const upstream = await fetch(`${ENDPOINT}?key=${env.GOOGLE_KEY}`, {
       method: 'POST',
