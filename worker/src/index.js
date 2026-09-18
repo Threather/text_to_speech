@@ -257,8 +257,42 @@ async function readChain(startUrl, count) {
 // person or a named figure: the source text is someone's copyrighted novel,
 // and atmosphere is both the safe answer and the better-looking one.
 
-const TEXT_MODEL = '@cf/meta/llama-3.1-8b-instruct';
-const IMAGE_MODEL = '@cf/bytedance/stable-diffusion-xl-lightning';
+// Cloudflare retires models on a schedule, so name several and use whichever
+// this account actually serves. First one that answers wins, and the winner is
+// remembered for the life of the isolate.
+const TEXT_MODELS = [
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  '@cf/meta/llama-4-scout-17b-16e-instruct',
+  '@cf/mistralai/mistral-small-3.1-24b-instruct',
+  '@cf/qwen/qwen2.5-coder-32b-instruct',
+  '@cf/meta/llama-3.1-8b-instruct-fast',
+  '@cf/meta/llama-3-8b-instruct',
+];
+const IMAGE_MODELS = [
+  '@cf/black-forest-labs/flux-1-schnell',
+  '@cf/bytedance/stable-diffusion-xl-lightning',
+  '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+];
+
+let goodText = null, goodImage = null;
+
+async function runFirst(env, models, remembered, input, setter) {
+  const order = remembered ? [remembered].concat(models.filter(m => m !== remembered)) : models;
+  let last = 'no model available';
+  for (const m of order) {
+    try {
+      const out = await env.AI.run(m, input);
+      setter(m);
+      return { model: m, out };
+    } catch (e) {
+      last = (e && e.message) || String(e);
+      // A deprecated or unavailable model is worth skipping; anything else is
+      // a real failure and retrying other models just wastes the allowance.
+      if (!/deprecat|not found|no such model|unavailable|5028|7000|7001/i.test(last)) throw e;
+    }
+  }
+  throw new Error(last);
+}
 
 const MAX_SCENE_TEXT = 12000;   // plenty for a chapter; keeps the model prompt sane
 const MAX_SCENES = 5;
@@ -313,15 +347,15 @@ async function buildScenes(env, text, want) {
     .join('\n\n')
     .slice(0, MAX_SCENE_TEXT);
 
-  const r = await env.AI.run(TEXT_MODEL, {
+  const { out } = await runFirst(env, TEXT_MODELS, goodText, {
     messages: [
       { role: 'system', content: SCENE_RULES },
       { role: 'user', content: `Choose ${want} moments from this passage.\n\n${numbered}` },
     ],
     max_tokens: 900,
-  });
+  }, m => { goodText = m; });
 
-  const scenes = parseScenes(r && r.response, paras.length, want);
+  const scenes = parseScenes(out && (out.response || out.result || out), paras.length, want);
   if (!scenes.length) throw new Error('Could not find scenes in this chapter.');
   return scenes;
 }
@@ -333,14 +367,17 @@ async function drawImage(env, prompt) {
     ', atmospheric matte painting, muted warm palette, volumetric light, ' +
     'deep shadow, painterly, no people, no text';
 
-  const res = await env.AI.run(IMAGE_MODEL, {
+  const { out } = await runFirst(env, IMAGE_MODELS, goodImage, {
     prompt: styled,
     negative_prompt: 'people, person, face, figure, crowd, text, watermark, signature, logo, letters',
     num_steps: 8,
-  });
+  }, m => { goodImage = m; });
 
-  // Workers AI returns a stream of PNG bytes for image models.
-  return res;
+  // Some image models stream raw PNG bytes; flux returns base64 JSON. Normalise.
+  if (out && typeof out === 'object' && typeof out.image === 'string') {
+    return b64ToBytes(out.image);
+  }
+  return out;
 }
 
 export default {
