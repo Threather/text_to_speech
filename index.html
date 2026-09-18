@@ -418,14 +418,11 @@
   // carries the paragraph it belongs to, so the reader can lay them out as
   // paragraphs and the voice gets a natural pause at every break.
   function chunkText(t) {
-    var paras = t.split(/
-\s*
-/);
+    var paras = t.split(/\n\s*\n/);
     var out = [];
 
     paras.forEach(function (para, pi) {
-      para = para.replace(/[ 	]*
-[ 	]*/g, ' ').replace(/\s+/g, ' ').trim();
+      para = para.replace(/[ \t]*\n[ \t]*/g, ' ').replace(/\s+/g, ' ').trim();
       if (!para) return;
 
       var sentences = para.match(/[^.!?…]+[.!?…]+["'’)\]]*|\S[^.!?…]*$/g) || [para];
