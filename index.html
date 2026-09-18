@@ -50,6 +50,8 @@
     border-radius:10px; line-height:1.9; font-size:17px;
     -webkit-overflow-scrolling:touch;
   }
+  .reader .para{margin:0 0 1.1em}
+  .reader .para:last-child{margin-bottom:0}
   .reader .chunk{color:var(--muted); transition:color .2s}
   .reader .chunk.done{color:var(--muted); opacity:.55}
   .reader .chunk.live{color:var(--ink)}
@@ -412,33 +414,48 @@
   }
 
   // ── Split text on sentence boundaries ────────────────────────
+  // Split into chunks without ever merging across a paragraph break. Each chunk
+  // carries the paragraph it belongs to, so the reader can lay them out as
+  // paragraphs and the voice gets a natural pause at every break.
   function chunkText(t) {
-    var sentences = t.replace(/\s+/g, ' ').trim()
-      .match(/[^.!?…]+[.!?…]+["'’)\]]*|\S[^.!?…]*$/g) || [];
-    var out = [], buf = '', limit = FIRST_CHUNK;
+    var paras = t.split(/
+\s*
+/);
+    var out = [];
 
-    for (var i = 0; i < sentences.length; i++) {
-      var s = sentences[i].trim();
-      if (!s) continue;
+    paras.forEach(function (para, pi) {
+      para = para.replace(/[ 	]*
+[ 	]*/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!para) return;
 
-      // Break an over-long sentence at a comma, then at a space.
-      while (s.length > limit * 2) {
-        if (buf) { out.push(buf); buf = ''; limit = CHUNK; }
-        var cut = s.lastIndexOf(',', limit);
-        if (cut < limit / 3) cut = s.lastIndexOf(' ', limit);
-        if (cut < 1) cut = limit;
-        out.push(s.slice(0, cut + 1).trim());
-        s = s.slice(cut + 1).trim();
-        limit = CHUNK;
+      var sentences = para.match(/[^.!?…]+[.!?…]+["'’)\]]*|\S[^.!?…]*$/g) || [para];
+      var buf = '';
+      // Only the very first chunk of the whole text needs to be small — that's
+      // the one the listener is waiting on.
+      var limit = out.length ? CHUNK : FIRST_CHUNK;
+
+      var push = function (txt) { out.push({ text: txt, para: pi }); limit = CHUNK; };
+
+      for (var i = 0; i < sentences.length; i++) {
+        var sn = sentences[i].trim();
+        if (!sn) continue;
+
+        // Break an over-long sentence at a comma, then at a space.
+        while (sn.length > limit * 2) {
+          if (buf) { push(buf); buf = ''; }
+          var cut = sn.lastIndexOf(',', limit);
+          if (cut < limit / 3) cut = sn.lastIndexOf(' ', limit);
+          if (cut < 1) cut = limit;
+          push(sn.slice(0, cut + 1).trim());
+          sn = sn.slice(cut + 1).trim();
+        }
+
+        if (buf && (buf + ' ' + sn).length > limit) { push(buf); buf = sn; }
+        else { buf = buf ? buf + ' ' + sn : sn; }
       }
+      if (buf) push(buf);
+    });
 
-      if (buf && (buf + ' ' + s).length > limit) {
-        out.push(buf); buf = s; limit = CHUNK;
-      } else {
-        buf = buf ? buf + ' ' + s : s;
-      }
-    }
-    if (buf) out.push(buf);
     return out;
   }
 
@@ -466,10 +483,19 @@
   function buildReader(chunks) {
     readerEl.innerHTML = '';
     chunkEls = [];
+    var pEl = null, lastPara = -1;
+
     chunks.forEach(function (c) {
+      if (c.para !== lastPara) {
+        pEl = document.createElement('p');
+        pEl.className = 'para';
+        readerEl.appendChild(pEl);
+        lastPara = c.para;
+      }
+
       var cs = document.createElement('span');
       cs.className = 'chunk';
-      var words = c.split(/(\s+)/);
+      var words = c.text.split(/(\s+)/);
       var total = 0;
       var spans = [];
       words.forEach(function (w) {
@@ -486,8 +512,9 @@
       cs.__total = total || 1;
       cs.appendChild(document.createTextNode(' '));
       chunkEls.push(cs);
-      readerEl.appendChild(cs);
+      pEl.appendChild(cs);
     });
+
     textEl.classList.add('hide');
     readerEl.classList.remove('hide');
     editBtn.classList.remove('hide');
@@ -639,7 +666,7 @@
     buildReader(chunks);
 
     for (var i = 0; i < Math.min(LOOKAHEAD, chunks.length); i++) {
-      queue[i] = fetchChunk(chunks[i]);
+      queue[i] = fetchChunk(chunks[i].text);
     }
 
     var i2 = 0;
@@ -653,7 +680,7 @@
       var idx = i2++;
       // Keep the pipeline topped up so the next chunk is ready before this one ends.
       var ahead = idx + LOOKAHEAD;
-      if (ahead < chunks.length && !queue[ahead]) queue[ahead] = fetchChunk(chunks[ahead]);
+      if (ahead < chunks.length && !queue[ahead]) queue[ahead] = fetchChunk(chunks[ahead].text);
 
       queue[idx].then(function (url) {
         if (cancelled) throw new Error('cancelled');
