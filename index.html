@@ -1177,7 +1177,7 @@
   function busy(on) {
     speakBtn.disabled = on;
     stopBtn.disabled = !on;
-    speakBtn.innerHTML = on ? '<span class="spin"></span>Speaking…' : '▶ Speak';
+    speakBtn.textContent = on ? '❚❚' : '▶';
   }
 
   function cleanup() {
@@ -1427,6 +1427,7 @@
   window.addEventListener('resize', reflowSpine);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', reflowSpine);
 
+  urlPanel.classList.remove('hide');   // the loader is permanent in this layout
   syncHasText();
   syncRooms();
 
