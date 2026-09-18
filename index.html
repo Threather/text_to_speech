@@ -1342,6 +1342,12 @@
     for (var i = 0; i < paras.length; i += step) groups.push(paras.slice(i, i + step));
     var pitch = h / groups.length;
 
+    // Anchor to the reader's real box. 60ch resolves against each element's own
+    // font, so the CSS value would land the spine under the prose.
+    var rr = readerEl.getBoundingClientRect();
+    var gap = window.innerWidth <= 760 ? 22 : 40;
+    spineEl.style.left = Math.max(6, Math.round(rr.left - gap)) + 'px';
+
     groups.forEach(function (g, gi) {
       var avg = g.reduce(function (n, p) { return n + p.textContent.length; }, 0) / g.length;
       var t = document.createElement('i');
