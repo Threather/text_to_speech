@@ -728,7 +728,6 @@
   try { histList.classList.toggle('hide', localStorage.getItem('histOpen') === '0'); }
   catch (e) {}
   renderHist();
-  renderQuota();
 
   toggleBtn.onclick = function () { setPanel(urlPanel.classList.contains('hide')); };
   $('clearLinks').onclick = function () {
@@ -1131,6 +1130,8 @@
     busy(false); running = false; progress(null);
     say('Stopped.');
   };
+
+  renderQuota();
 })();
 </script>
 </body>
