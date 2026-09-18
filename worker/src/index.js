@@ -297,17 +297,22 @@ const SCENE_RULES =
   'and write one image prompt for each.\n\n' +
   'RULES:\n' +
   '- Describe PLACE, ARCHITECTURE, LANDSCAPE, WEATHER, LIGHT, OBJECTS and MOOD.\n' +
-  '- Human figures are allowed, but only generically: "a lone traveller", "a hooded ' +
-  'figure on the bridge", "two riders on the ridge". Describe posture, distance and ' +
-  'silhouette, never a face in detail.\n' +
-  '- Never use a proper name from the text, and never reproduce a named character\'s ' +
-  'described appearance. The figures are anonymous people in a scene, not portraits.\n' +
+  '- People belong in the picture when the passage has them. Keep the specific visual ' +
+  'details the text gives — hair colour, clothing, what they are doing, where they ' +
+  'stand. Do not flatten a described person into "a figure".\n' +
+  '- Do not use a proper name from the text, and do not reproduce a named character ' +
+  'from a published work. Describe the person, not the character.\n' +
   '- No lettering, no logos, no captions in the image.\n' +
   '- 12 to 30 words each. Concrete nouns and light, not plot.\n' +
-  '- Each prompt must depict a different location or time of day from the others.\n\n' +
+  '- Each prompt must depict a different moment from the others.\n\n' +
   'Return ONLY a JSON array, no prose around it, in this exact shape:\n' +
   '[{"para":0,"prompt":"..."}]\n' +
   'where "para" is the 0-based index of the paragraph the moment belongs to.';
+
+// Short input is a direct instruction, not a chapter to interpret. Passing it
+// through untouched is the difference between drawing what someone asked for
+// and drawing a summary of it.
+const DIRECT_MAX = 220;
 
 function paragraphsOf(text) {
   return text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
@@ -361,6 +366,11 @@ function fallbackScenes(paras, want) {
 async function buildScenes(env, text, want) {
   const paras = paragraphsOf(text);
   if (!paras.length) throw new Error('No text to read.');
+
+  // One short line is someone telling us what to draw. Use their words.
+  if (paras.length === 1 && text.trim().length <= DIRECT_MAX) {
+    return [{ para: 0, prompt: text.trim().slice(0, 300) }];
+  }
 
   // Number the paragraphs so the model can point at one.
   const numbered = paras
@@ -472,7 +482,12 @@ export default {
           headers: { ...headers, 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' },
         });
       } catch (e) {
-        return new Response(e.message || 'Image generation failed', { status: 502, headers });
+        const m = (e && e.message) || '';
+        // 8007 is Cloudflare's own prompt classifier, not a fault in this Worker.
+        const friendly = /nsfw|8007/i.test(m)
+          ? 'Cloudflare declined this prompt. Try describing the scene differently.'
+          : (m || 'Image generation failed');
+        return new Response(friendly, { status: 502, headers });
       }
     }
 
