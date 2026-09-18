@@ -27,15 +27,15 @@
   body{
     margin:0; background:var(--bg); color:var(--ink);
     font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-    display:flex; justify-content:center; padding:36px 16px 64px;
+    display:flex; justify-content:center; padding:32px 20px 56px;
     -webkit-text-size-adjust:100%;
   }
-  main{width:100%; max-width:1080px}
+  main{width:100%; max-width:min(1600px, 96vw)}
   h1{font-size:32px; letter-spacing:-.02em; margin:0 0 4px}
   .sub{color:var(--muted); margin:0 0 22px; font-size:15px}
   .card{background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:24px; box-shadow:var(--shadow)}
   textarea{
-    width:100%; min-height:52vh; resize:vertical; padding:22px 24px;
+    width:100%; min-height:58vh; resize:vertical; padding:26px 30px;
     background:transparent; color:var(--ink); border:1px solid var(--line);
     border-radius:10px; font:inherit; line-height:1.9; font-size:18px;
   }
@@ -77,6 +77,11 @@
     font-size:12px; color:var(--muted); letter-spacing:.02em;
   }
   .histhead button{margin:0}
+  .histtoggle{
+    background:none; border:0; padding:2px 0; color:var(--muted);
+    font:inherit; font-size:12px; letter-spacing:.02em; cursor:pointer;
+  }
+  .histtoggle:hover{color:var(--ink)}
   .hist ul{list-style:none; margin:8px 0 0; padding:0; max-height:170px; overflow-y:auto}
   .hist li{
     display:flex; align-items:center; gap:8px; padding:5px 6px;
@@ -96,7 +101,7 @@
   .urlbtns{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
   .urlbtns button{padding:9px 16px; font-size:14px; white-space:nowrap}
   .reader{
-    max-height:64vh; overflow-y:auto; padding:22px 24px; border:1px solid var(--line);
+    max-height:70vh; overflow-y:auto; padding:26px 30px; border:1px solid var(--line);
     border-radius:10px; line-height:2; font-size:18px;
     -webkit-overflow-scrolling:touch;
   }
@@ -173,7 +178,8 @@
 
       <div class="hist hide" id="hist">
         <div class="histhead">
-          <span id="histCount">Recently loaded</span>
+          <button id="toggleHist" type="button" class="ghost histtoggle"
+                  aria-expanded="true"><span id="histCount">Recently loaded</span></button>
           <button id="clearHist" type="button" class="ghost">Clear all</button>
         </div>
         <ul id="histList"></ul>
@@ -655,9 +661,9 @@
   function renderHist() {
     var list = readHist();
     histEl.classList.toggle('hide', !list.length);
-    histCount.textContent = list.length
-      ? 'Recently loaded (' + list.length + ')'
-      : 'Recently loaded';
+    var open = !histList.classList.contains('hide');
+    histCount.textContent = (open ? '▾ ' : '▸ ') +
+      (list.length ? 'Recently loaded (' + list.length + ')' : 'Recently loaded');
     histList.innerHTML = '';
 
     list.forEach(function (item) {
@@ -688,12 +694,25 @@
     });
   }
 
+  // Collapse the list but keep the header, so the count and Clear stay reachable.
+  function setHistOpen(open) {
+    histList.classList.toggle('hide', !open);
+    $('toggleHist').setAttribute('aria-expanded', open ? 'true' : 'false');
+    try { localStorage.setItem('histOpen', open ? '1' : '0'); } catch (e) {}
+    renderHist();
+  }
+  $('toggleHist').onclick = function () {
+    setHistOpen(histList.classList.contains('hide'));
+  };
+
   $('clearHist').onclick = function () {
     try { localStorage.removeItem(HIST_KEY); } catch (e) {}
     renderHist();
     say('History cleared.');
   };
 
+  try { histList.classList.toggle('hide', localStorage.getItem('histOpen') === '0'); }
+  catch (e) {}
   renderHist();
 
   toggleBtn.onclick = function () { setPanel(urlPanel.classList.contains('hide')); };
