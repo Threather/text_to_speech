@@ -45,14 +45,25 @@
     padding:10px; border-radius:9px; border:1px solid var(--line);
     background:var(--panel); color:var(--ink); font:inherit; font-size:16px; width:100%;
   }
-  .urlbar{display:flex; gap:8px; margin-bottom:12px}
-  .urlbar input{
-    flex:1; min-width:0; padding:10px 12px; border-radius:9px;
+  .linktoggle{margin:0 0 10px; display:block}
+  .urlpanel{
+    border:1px solid var(--line); border-radius:10px;
+    padding:12px; margin-bottom:12px;
+  }
+  .urlrow{display:flex; align-items:center; gap:8px; margin-bottom:7px}
+  .urlrow .num{
+    flex:0 0 22px; height:22px; border-radius:50%; background:var(--track);
+    color:var(--muted); font-size:12px; display:flex; align-items:center;
+    justify-content:center; font-variant-numeric:tabular-nums;
+  }
+  .urlpanel input{
+    flex:1; min-width:0; padding:9px 11px; border-radius:9px;
     border:1px solid var(--line); background:transparent; color:var(--ink);
     font:inherit; font-size:16px;
   }
-  .urlbar input:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
-  .urlbar button{padding:10px 16px; font-size:14px; white-space:nowrap}
+  .urlpanel input:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
+  .urlbtns{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+  .urlbtns button{padding:9px 16px; font-size:14px; white-space:nowrap}
   .reader{
     max-height:46vh; overflow-y:auto; padding:14px; border:1px solid var(--line);
     border-radius:10px; line-height:1.9; font-size:17px;
@@ -109,11 +120,27 @@
   </div>
 
   <div class="card">
-    <div class="urlbar" id="urlbar">
-      <input id="url" type="url" inputmode="url" spellcheck="false"
-             placeholder="…or paste page links — several at once is fine">
-      <button id="load" type="button">Load</button>
-      <button id="add" type="button">+ Add</button>
+    <button id="toggleLinks" class="ghost linktoggle" type="button"
+            aria-expanded="false">▸ Load from links</button>
+
+    <div class="urlpanel hide" id="urlpanel">
+      <div class="urlrow"><span class="num">1</span>
+        <input class="url" type="url" inputmode="url" spellcheck="false"
+               placeholder="first chapter link"></div>
+      <div class="urlrow"><span class="num">2</span>
+        <input class="url" type="url" inputmode="url" spellcheck="false" placeholder="then this one"></div>
+      <div class="urlrow"><span class="num">3</span>
+        <input class="url" type="url" inputmode="url" spellcheck="false" placeholder="optional"></div>
+      <div class="urlrow"><span class="num">4</span>
+        <input class="url" type="url" inputmode="url" spellcheck="false" placeholder="optional"></div>
+      <div class="urlrow"><span class="num">5</span>
+        <input class="url" type="url" inputmode="url" spellcheck="false" placeholder="optional"></div>
+
+      <div class="urlbtns">
+        <button id="load" type="button">Load</button>
+        <button id="add" type="button">+ Add</button>
+        <button id="clearLinks" type="button" class="ghost">Clear</button>
+      </div>
     </div>
 
     <textarea id="text" placeholder="Paste or type your text here…" spellcheck="false"></textarea>
@@ -543,7 +570,24 @@
   editBtn.onclick = function () { if (!running) showEditor(); };
 
   // ── Load a page's text through the Worker (the browser can't fetch it) ──
-  var urlEl = $('url'), loadBtn = $('load'), addBtn = $('add');
+  var urlPanel = $('urlpanel'), toggleBtn = $('toggleLinks');
+  var urlInputs = [].slice.call(document.querySelectorAll('.urlpanel input.url'));
+  var loadBtn = $('load'), addBtn = $('add');
+
+  // Remember whether the panel was open. Storage can throw in private mode.
+  function setPanel(open) {
+    urlPanel.classList.toggle('hide', !open);
+    toggleBtn.textContent = (open ? '▾' : '▸') + ' Load from links';
+    toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    try { localStorage.setItem('linksOpen', open ? '1' : '0'); } catch (e) {}
+  }
+  try { setPanel(localStorage.getItem('linksOpen') === '1'); } catch (e) { setPanel(false); }
+
+  toggleBtn.onclick = function () { setPanel(urlPanel.classList.contains('hide')); };
+  $('clearLinks').onclick = function () {
+    urlInputs.forEach(function (i) { i.value = ''; });
+    urlInputs[0].focus();
+  };
 
   function fetchOne(u) {
     return fetch(WORKER_URL + '/fetch?url=' + encodeURIComponent(u))
@@ -553,10 +597,18 @@
       });
   }
 
-  // Paste one link or several — whitespace, commas and newlines all separate them.
+  // Read the boxes top to bottom, skipping blanks. Box 1 is read first.
+  function collectUrls() {
+    var out = [];
+    urlInputs.forEach(function (inp) {
+      inp.value.split(/[\s,]+/).forEach(function (u) { if (u) out.push(u); });
+    });
+    return out;
+  }
+
   function loadUrls(append) {
-    var list = urlEl.value.split(/[\s,]+/).filter(Boolean);
-    if (!list.length) { urlEl.focus(); return; }
+    var list = collectUrls();
+    if (!list.length) { setPanel(true); urlInputs[0].focus(); return; }
     if (!useWorker) { fail('Loading links needs the Worker configured.'); return; }
 
     clearErr();
@@ -582,7 +634,7 @@
         ? textEl.value.replace(/\s+$/, '') + '\n\n' + joined
         : joined;
       charsEl.textContent = textEl.value.length;
-      urlEl.value = '';
+      urlInputs.forEach(function (i) { i.value = ''; });
 
       var paras = textEl.value.split(/\n\s*\n/).length;
       say('Loaded ' + out.length + ' page' + (out.length > 1 ? 's' : '') +
@@ -598,7 +650,9 @@
 
   loadBtn.onclick = function () { loadUrls(false); };
   addBtn.onclick  = function () { loadUrls(true); };
-  urlEl.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); loadUrls(false); } };
+  urlInputs.forEach(function (inp) {
+    inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); loadUrls(false); } };
+  });
 
   // Click any paragraph to hear it again from its start.
   readerEl.onclick = function (e) {
