@@ -78,6 +78,52 @@ function safeUrl(raw) {
   return u;
 }
 
+// Walk forward from an opening tag to its matching close, counting nesting.
+function sliceBalanced(html, openEnd, tag) {
+  const re = new RegExp(`<(/?)${tag}\\b`, 'gi');
+  re.lastIndex = openEnd;
+  let depth = 1, m;
+  while ((m = re.exec(html))) {
+    depth += m[1] ? -1 : 1;
+    if (depth === 0) return html.slice(openEnd, m.index);
+  }
+  return null;
+}
+
+// Pick the block that holds the most actual prose. Footers, comment sections and
+// "next chapter" widgets lose because they carry little paragraph text.
+function mainContent(html) {
+  const re = /<(div|article|section|main)\b[^>]*\b(?:id|class)\s*=\s*["'][^"']*(?:chapter|content|article|entry|post|story|reading|text)[^"']*["'][^>]*>/gi;
+  let best = null, bestScore = 0, m;
+
+  while ((m = re.exec(html))) {
+    const inner = sliceBalanced(html, m.index + m[0].length, m[1]);
+    if (!inner) continue;
+    let score = 0;
+    for (const p of inner.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)) score += p[1].length;
+    if (score > bestScore) { bestScore = score; best = inner; }
+  }
+  return bestScore > 400 ? best : html;
+}
+
+// Site furniture that shows up inside or right after the text on reader sites.
+const JUNK = [
+  /if you find any errors/i,
+  /please let us know so we can fix/i,
+  /use arrow keys/i,
+  /prev\s*\/\s*next chapter/i,
+  /loading comments/i,
+  /keep discussions friendly/i,
+  /comments that break these rules/i,
+  /enter your account email/i,
+  /we'?ll send a reset link/i,
+  /^\s*(advertisement|sponsored|report (a |this )?(chapter|error))\s*$/i,
+  /^(next|previous|prev) chapter$/i,
+  /translator|editor:|proofread/i,
+];
+
+const isJunk = t => JUNK.some(re => re.test(t));
+
 async function readPage(raw) {
   const u = safeUrl(raw);
   if (!u) throw new Error('That URL is not a public web address.');
@@ -109,21 +155,24 @@ async function readPage(raw) {
 
   const title = stripTags((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [, ''])[1]);
 
+  // Narrow to the block that actually holds the prose before reading paragraphs.
+  const body = mainContent(html);
+
   // Collect paragraphs. Short ones that are mostly links are navigation, not text.
   const paras = [];
-  for (const m of html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)) {
+  for (const m of body.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)) {
     const inner = m[1];
     const text = stripTags(inner);
-    if (!text) continue;
+    if (!text || isJunk(text)) continue;
     if (/<a\b/i.test(inner) && text.length < 60) continue;
     paras.push(text);
   }
 
   // Some sites use <div> per line instead of <p>.
   if (paras.length < 3) {
-    for (const m of html.matchAll(/<div\b[^>]*>([^<]{40,})<\/div>/gi)) {
+    for (const m of body.matchAll(/<div\b[^>]*>([^<]{40,})<\/div>/gi)) {
       const text = stripTags(m[1]);
-      if (text) paras.push(text);
+      if (text && !isJunk(text)) paras.push(text);
     }
   }
 
