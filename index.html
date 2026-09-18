@@ -634,7 +634,7 @@
         ? textEl.value.replace(/\s+$/, '') + '\n\n' + joined
         : joined;
       charsEl.textContent = textEl.value.length;
-      urlInputs.forEach(function (i) { i.value = ''; });
+      // Leave the links in place so it's clear what was loaded; Clear empties them.
 
       var paras = textEl.value.split(/\n\s*\n/).length;
       say('Loaded ' + out.length + ' page' + (out.length > 1 ? 's' : '') +
