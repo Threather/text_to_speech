@@ -50,7 +50,8 @@
     border-radius:10px; line-height:1.9; font-size:17px;
     -webkit-overflow-scrolling:touch;
   }
-  .reader .para{margin:0 0 1.1em}
+  .reader .para{margin:0 0 1.1em; cursor:pointer; border-radius:6px; padding:2px 4px; margin-left:-4px}
+  .reader .para:hover{background:color-mix(in srgb, var(--accent) 10%, transparent)}
   .reader .para:last-child{margin-bottom:0}
   .reader .chunk{color:var(--muted); transition:color .2s}
   .reader .chunk.done{color:var(--muted); opacity:.55}
@@ -508,6 +509,8 @@
       cs.__words = spans;
       cs.__total = total || 1;
       cs.appendChild(document.createTextNode(' '));
+      // Remember where each paragraph starts so a click can replay it whole.
+      if (pEl.__firstChunk === undefined) pEl.__firstChunk = chunkEls.length;
       chunkEls.push(cs);
       pEl.appendChild(cs);
     });
@@ -523,6 +526,15 @@
     textEl.classList.remove('hide');
   }
   editBtn.onclick = function () { if (!running) showEditor(); };
+
+  // Click any paragraph to hear it again from its start.
+  readerEl.onclick = function (e) {
+    var p = e.target.closest ? e.target.closest('.para') : null;
+    if (!p || p.__firstChunk === undefined || !curChunks.length) return;
+    unlock();                       // this is a gesture — keep iOS happy
+    clearErr();
+    playFrom(p.__firstChunk);
+  };
 
   // Called on every timeupdate while a chunk plays.
   function highlight(cs, ratio) {
@@ -648,27 +660,53 @@
     var text = textEl.value.trim();
     if (!text) { say('Nothing to read — paste some text first.'); textEl.focus(); return; }
 
-    cancelled = false; running = true;
-    busy(true); cleanup();
+    cancelled = false;
+    cleanup();
 
-    if (!useWorker) return speakLocal(text);
+    if (!useWorker) { running = true; busy(true); return speakLocal(text); }
 
-    var chunks = chunkText(text);
-    var label = voiceEl.options[voiceEl.selectedIndex].textContent;
-    var queue = [];                 // promises, one per chunk, started ahead of playback
+    curChunks = chunkText(text);
+    curLabel = voiceEl.options[voiceEl.selectedIndex].textContent;
+    curQueue = [];
+
+    buildReader(curChunks);
+    playFrom(0);
+  };
+
+  // Playback state lives out here so a click on a paragraph can jump into it.
+  var curChunks = [], curQueue = [], curLabel = '';
+  var runId = 0;                    // bumped on every jump; stale loops bail out
+
+  function playFrom(start) {
+    var myRun = ++runId;
+    cancelled = false;
+    running = true;
+    busy(true);
+
+    player.pause();
+    player.onended = null;
+    player.ontimeupdate = null;
+    if (lastWord) { lastWord.classList.remove('now'); lastWord = null; }
+
+    // Everything from here on is unread again.
+    chunkEls.forEach(function (cs, i) {
+      if (i >= start) {
+        cs.classList.remove('done', 'live');
+        cs.__words.forEach(function (w) { w.classList.remove('spoken', 'now'); });
+      }
+    });
 
     say('Connecting…');
-    progress(0);
+    progress((start / curChunks.length) * 100);
 
-    buildReader(chunks);
-
-    for (var i = 0; i < Math.min(LOOKAHEAD, chunks.length); i++) {
-      queue[i] = fetchChunk(chunks[i].text);
+    for (var i = start; i < Math.min(start + LOOKAHEAD, curChunks.length); i++) {
+      if (!curQueue[i]) curQueue[i] = fetchChunk(curChunks[i].text);
     }
 
-    var i2 = 0;
+    var i2 = start;
     (function next() {
-      if (cancelled || i2 >= chunks.length) {
+      if (myRun !== runId) return;            // a jump superseded this loop
+      if (cancelled || i2 >= curChunks.length) {
         if (!cancelled) { say('Done.'); progress(100); setTimeout(function(){progress(null);}, 600); }
         busy(false); running = false;
         return;
@@ -677,21 +715,25 @@
       var idx = i2++;
       // Keep the pipeline topped up so the next chunk is ready before this one ends.
       var ahead = idx + LOOKAHEAD;
-      if (ahead < chunks.length && !queue[ahead]) queue[ahead] = fetchChunk(chunks[ahead].text);
+      if (ahead < curChunks.length && !curQueue[ahead]) curQueue[ahead] = fetchChunk(curChunks[ahead].text);
 
-      queue[idx].then(function (url) {
+      curQueue[idx].then(function (url) {
+        if (myRun !== runId) return;
         if (cancelled) throw new Error('cancelled');
-        say(chunks.length > 1
-          ? label + ' — part ' + (idx + 1) + ' of ' + chunks.length
-          : 'Playing ' + label + '…');
-        progress((idx / chunks.length) * 100);
+        say(curChunks.length > 1
+          ? curLabel + ' — part ' + (idx + 1) + ' of ' + curChunks.length
+          : 'Playing ' + curLabel + '…');
+        progress((idx / curChunks.length) * 100);
         var cs = chunkEls[idx];
         if (cs) {
           cs.classList.add('live');
           cs.scrollIntoView({ block: 'nearest' });
         }
         return playUrl(url, cs);
-      }).then(next).catch(function (e) {
+      }).then(function () {
+        if (myRun === runId) next();
+      }).catch(function (e) {
+        if (myRun !== runId) return;
         busy(false); running = false; progress(null);
         if (cancelled) { say('Stopped.'); return; }
         fail(e.name === 'NotAllowedError'
@@ -700,7 +742,7 @@
         say('');
       });
     })();
-  };
+  }
 
   function speakLocal(text) {
     if (!window.speechSynthesis) { fail('No speech support in this browser.'); busy(false); running = false; return; }
