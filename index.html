@@ -168,7 +168,6 @@
 
       <div class="urlbtns">
         <button id="load" type="button">Load</button>
-        <button id="add" type="button">+ Add</button>
         <button id="clearLinks" type="button" class="ghost">Clear</button>
       </div>
 
@@ -610,7 +609,7 @@
   // ── Load a page's text through the Worker (the browser can't fetch it) ──
   var urlPanel = $('urlpanel'), toggleBtn = $('toggleLinks');
   var urlInputs = [].slice.call(document.querySelectorAll('.urlpanel input.url'));
-  var loadBtn = $('load'), addBtn = $('add');
+  var loadBtn = $('load');
 
   // Remember whether the panel was open. Storage can throw in private mode.
   function setPanel(open) {
@@ -730,8 +729,8 @@
   function loadChain(append, first, n) {
     clearErr();
     showEditor();
-    loadBtn.disabled = addBtn.disabled = true;
-    (append ? addBtn : loadBtn).textContent = 'Loading…';
+    loadBtn.disabled = true;
+    loadBtn.textContent = 'Loading…';
     say('Following ' + n + ' chapters…');
 
     fetch(WORKER_URL + '/chain?n=' + n + '&url=' + encodeURIComponent(first))
@@ -753,7 +752,7 @@
         var more = '';
         if (d.next) {
           urlInputs[0].value = d.next;
-          more = ' Next chapter is queued — press + Add to continue.';
+          more = ' Next chapter is queued — press Load to continue.';
         }
 
         say('Loaded ' + pages.length + ' chapter' + (pages.length > 1 ? 's' : '') +
@@ -762,9 +761,8 @@
       })
       .catch(function (e) { fail(e.message); say(''); })
       .finally(function () {
-        loadBtn.disabled = addBtn.disabled = false;
+        loadBtn.disabled = false;
         loadBtn.textContent = 'Load';
-        addBtn.textContent = '+ Add';
       });
   }
 
@@ -772,14 +770,13 @@
     var list = collectUrls();
     if (!list.length) { setPanel(true); urlInputs[0].focus(); return; }
 
-    var n = chainCount();
-    if (n > 1) return loadChain(append, list[0], n);
+    if (list.length === 1) return loadChain(append, list[0], chainCount());
     if (!useWorker) { fail('Loading links needs the Worker configured.'); return; }
 
     clearErr();
     showEditor();
-    loadBtn.disabled = addBtn.disabled = true;
-    (append ? addBtn : loadBtn).textContent = 'Loading…';
+    loadBtn.disabled = true;
+    loadBtn.textContent = 'Loading…';
 
     var out = [], titles = [], loaded = [], failed = 0;
 
@@ -812,14 +809,12 @@
           (failed ? ' (' + failed + ' failed)' : '') +
           (titles.length === 1 ? ' — ' + titles[0] : '') + '.');
     }).finally(function () {
-      loadBtn.disabled = addBtn.disabled = false;
+      loadBtn.disabled = false;
       loadBtn.textContent = 'Load';
-      addBtn.textContent = '+ Add';
     });
   }
 
   loadBtn.onclick = function () { loadUrls(false); };
-  addBtn.onclick  = function () { loadUrls(true); };
   urlInputs.forEach(function (inp) {
     inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); loadUrls(false); } };
   });
