@@ -389,23 +389,46 @@ async function buildScenes(env, text, want) {
 }
 
 async function drawImage(env, prompt) {
-  // A house style, so five images from one chapter read as one set.
+  // A house style, so five images from one chapter read as one set. The "no
+  // people" instruction lives in the prompt as well as the negative prompt,
+  // because flux accepts no negative prompt at all.
   const styled =
     prompt +
     ', atmospheric matte painting, muted warm palette, volumetric light, ' +
-    'deep shadow, painterly, no people, no text';
+    'deep shadow, painterly, empty landscape, no people, no figures, no text';
 
-  const { out } = await runFirst(env, IMAGE_MODELS, goodImage, {
-    prompt: styled,
-    negative_prompt: 'people, person, face, figure, crowd, text, watermark, signature, logo, letters',
-    num_steps: 8,
-  }, m => { goodImage = m; });
+  const NEG = 'people, person, face, figure, crowd, text, watermark, signature, logo, letters';
 
-  // Some image models stream raw PNG bytes; flux returns base64 JSON. Normalise.
-  if (out && typeof out === 'object' && typeof out.image === 'string') {
-    return b64ToBytes(out.image);
+  // Each model takes its own parameter shape; sending the wrong one is a hard
+  // 5006 rather than a warning, so they are declared per model.
+  const candidates = [
+    { model: '@cf/black-forest-labs/flux-1-schnell', input: { prompt: styled, steps: 4 } },
+    { model: '@cf/bytedance/stable-diffusion-xl-lightning',
+      input: { prompt: styled, negative_prompt: NEG, num_steps: 8 } },
+    { model: '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+      input: { prompt: styled, negative_prompt: NEG, num_steps: 20 } },
+  ];
+
+  const order = goodImage
+    ? candidates.slice().sort((a, b) => (a.model === goodImage ? -1 : b.model === goodImage ? 1 : 0))
+    : candidates;
+
+  let last = 'no image model available';
+  for (const c of order) {
+    try {
+      const out = await env.AI.run(c.model, c.input);
+      goodImage = c.model;
+      // Some models stream raw PNG bytes; flux returns base64 in JSON.
+      if (out && typeof out === 'object' && typeof out.image === 'string') {
+        return b64ToBytes(out.image);
+      }
+      return out;
+    } catch (e) {
+      last = (e && e.message) || String(e);
+      if (!/deprecat|not found|no such model|unavailable|not allowed|5006|5028|7000|7001/i.test(last)) throw e;
+    }
   }
-  return out;
+  throw new Error(last);
 }
 
 export default {
