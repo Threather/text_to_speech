@@ -268,11 +268,6 @@ const TEXT_MODELS = [
   '@cf/meta/llama-3.1-8b-instruct-fast',
   '@cf/meta/llama-3-8b-instruct',
 ];
-const IMAGE_MODELS = [
-  '@cf/black-forest-labs/flux-1-schnell',
-  '@cf/bytedance/stable-diffusion-xl-lightning',
-  '@cf/stabilityai/stable-diffusion-xl-base-1.0',
-];
 
 let goodText = null, goodImage = null;
 
