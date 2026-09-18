@@ -71,6 +71,28 @@
     border-radius:8px; border:1px solid var(--line);
     background:transparent; color:var(--ink); font:inherit; font-size:15px;
   }
+  .hist{margin-top:14px; border-top:1px solid var(--line); padding-top:12px}
+  .histhead{
+    display:flex; align-items:center; justify-content:space-between;
+    font-size:12px; color:var(--muted); letter-spacing:.02em;
+  }
+  .histhead button{margin:0}
+  .hist ul{list-style:none; margin:8px 0 0; padding:0; max-height:170px; overflow-y:auto}
+  .hist li{
+    display:flex; align-items:center; gap:8px; padding:5px 6px;
+    border-radius:7px; font-size:13px;
+  }
+  .hist li:hover{background:var(--track)}
+  .hist li button.pick{
+    flex:1; min-width:0; text-align:left; background:none; border:0; padding:4px 2px;
+    color:var(--ink); font:inherit; font-size:13px; cursor:pointer;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .hist li button.del{
+    flex:0 0 auto; padding:2px 8px; font-size:14px; line-height:1.4;
+    color:var(--muted); background:none; border:0; cursor:pointer; margin:0;
+  }
+  .hist li button.del:hover{color:var(--errink)}
   .urlbtns{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
   .urlbtns button{padding:9px 16px; font-size:14px; white-space:nowrap}
   .reader{
@@ -155,6 +177,14 @@
         <button id="load" type="button">Load</button>
         <button id="add" type="button">+ Add</button>
         <button id="clearLinks" type="button" class="ghost">Clear</button>
+      </div>
+
+      <div class="hist hide" id="hist">
+        <div class="histhead">
+          <span id="histCount">Recently loaded</span>
+          <button id="clearHist" type="button" class="ghost">Clear all</button>
+        </div>
+        <ul id="histList"></ul>
       </div>
     </div>
 
@@ -598,6 +628,82 @@
   }
   try { setPanel(localStorage.getItem('linksOpen') === '1'); } catch (e) { setPanel(false); }
 
+  // ── History, kept only in this browser ────────────────────────────────
+  // Nothing here is sent anywhere — it lives in localStorage on this device
+  // and the Clear buttons remove it for good.
+  var HIST_KEY = 'speakHistory';
+  var HIST_MAX = 200;
+  var histEl = $('hist'), histList = $('histList'), histCount = $('histCount');
+
+  function readHist() {
+    try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); }
+    catch (e) { return []; }
+  }
+  function writeHist(list) {
+    try { localStorage.setItem(HIST_KEY, JSON.stringify(list.slice(0, HIST_MAX))); }
+    catch (e) {}                    // private mode, or storage full — not fatal
+  }
+
+  function addHist(entries) {
+    var list = readHist();
+    entries.forEach(function (e) {
+      if (!e.url) return;
+      list = list.filter(function (x) { return x.url !== e.url; });   // no duplicates
+      list.unshift({ url: e.url, title: e.title || '', at: Date.now() });
+    });
+    writeHist(list);
+    renderHist();
+  }
+
+  function removeHist(url) {
+    writeHist(readHist().filter(function (x) { return x.url !== url; }));
+    renderHist();
+  }
+
+  function renderHist() {
+    var list = readHist();
+    histEl.classList.toggle('hide', !list.length);
+    histCount.textContent = list.length
+      ? 'Recently loaded (' + list.length + ')'
+      : 'Recently loaded';
+    histList.innerHTML = '';
+
+    list.forEach(function (item) {
+      var li = document.createElement('li');
+
+      var pick = document.createElement('button');
+      pick.type = 'button';
+      pick.className = 'pick';
+      pick.textContent = item.title || item.url;
+      pick.title = item.url;
+      pick.onclick = function () {
+        urlInputs[0].value = item.url;
+        urlInputs[0].focus();
+        say('Put that link in box 1.');
+      };
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'del';
+      del.textContent = '×';
+      del.title = 'Remove from history';
+      del.setAttribute('aria-label', 'Remove ' + (item.title || item.url));
+      del.onclick = function () { removeHist(item.url); };
+
+      li.appendChild(pick);
+      li.appendChild(del);
+      histList.appendChild(li);
+    });
+  }
+
+  $('clearHist').onclick = function () {
+    try { localStorage.removeItem(HIST_KEY); } catch (e) {}
+    renderHist();
+    say('History cleared.');
+  };
+
+  renderHist();
+
   toggleBtn.onclick = function () { setPanel(urlPanel.classList.contains('hide')); };
   $('clearLinks').onclick = function () {
     urlInputs.forEach(function (i) { i.value = ''; });
@@ -648,6 +754,8 @@
           : joined;
         charsEl.textContent = textEl.value.length;
 
+        addHist(pages.map(function (p) { return { url: p.url, title: p.title }; }));
+
         // Queue up where this run stopped, so "+ Add" just continues.
         var more = '';
         if (d.next) {
@@ -680,14 +788,18 @@
     loadBtn.disabled = addBtn.disabled = true;
     (append ? addBtn : loadBtn).textContent = 'Loading…';
 
-    var out = [], titles = [], failed = 0;
+    var out = [], titles = [], loaded = [], failed = 0;
 
     // One at a time, in the order given, so chapters stay in sequence.
     list.reduce(function (chain, u, i) {
       return chain.then(function () {
         say('Fetching ' + (i + 1) + ' of ' + list.length + '…');
         return fetchOne(u)
-          .then(function (d) { out.push(d.text); if (d.title) titles.push(d.title); })
+          .then(function (d) {
+            out.push(d.text);
+            if (d.title) titles.push(d.title);
+            loaded.push({ url: u, title: d.title });
+          })
           .catch(function () { failed++; });
       });
     }, Promise.resolve()).then(function () {
@@ -699,6 +811,7 @@
         : joined;
       charsEl.textContent = textEl.value.length;
       // Leave the links in place so it's clear what was loaded; Clear empties them.
+      addHist(loaded);
 
       var paras = textEl.value.split(/\n\s*\n/).length;
       say('Loaded ' + out.length + ' page' + (out.length > 1 ? 's' : '') +

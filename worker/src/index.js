@@ -213,7 +213,7 @@ async function readChain(startUrl, count) {
     if (seen.has(url)) break;          // a site that links back on itself
     seen.add(url);
     const page = await readPage(url);
-    out.push({ title: page.title, text: page.text });
+    out.push({ url, title: page.title, text: page.text });
     url = page.next;
   }
 
