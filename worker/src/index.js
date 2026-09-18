@@ -295,10 +295,13 @@ const MAX_SCENES = 5;
 const SCENE_RULES =
   'You are given a passage of prose. Choose the most visually distinct moments in it ' +
   'and write one image prompt for each.\n\n' +
-  'HARD RULES:\n' +
-  '- Describe only PLACE, ARCHITECTURE, LANDSCAPE, WEATHER, LIGHT, OBJECTS and MOOD.\n' +
-  '- Never describe a person, character, figure, creature or any living being. No faces, no bodies, no silhouettes of people.\n' +
-  '- Never use a proper name from the text.\n' +
+  'RULES:\n' +
+  '- Describe PLACE, ARCHITECTURE, LANDSCAPE, WEATHER, LIGHT, OBJECTS and MOOD.\n' +
+  '- Human figures are allowed, but only generically: "a lone traveller", "a hooded ' +
+  'figure on the bridge", "two riders on the ridge". Describe posture, distance and ' +
+  'silhouette, never a face in detail.\n' +
+  '- Never use a proper name from the text, and never reproduce a named character\'s ' +
+  'described appearance. The figures are anonymous people in a scene, not portraits.\n' +
   '- No lettering, no logos, no captions in the image.\n' +
   '- 12 to 30 words each. Concrete nouns and light, not plot.\n' +
   '- Each prompt must depict a different location or time of day from the others.\n\n' +
@@ -390,9 +393,12 @@ async function drawImage(env, prompt) {
   const styled =
     prompt +
     ', atmospheric matte painting, muted warm palette, volumetric light, ' +
-    'deep shadow, painterly, empty landscape, no people, no figures, no text';
+    'deep shadow, painterly, cinematic composition, no text';
 
-  const NEG = 'people, person, face, figure, crowd, text, watermark, signature, logo, letters';
+  // Figures are wanted now; what is not wanted is the way a 4-step model draws
+  // faces and hands up close, and any lettering baked into the picture.
+  const NEG = 'close-up portrait, deformed face, distorted hands, extra limbs, ' +
+    'text, watermark, signature, logo, letters';
 
   // Each model takes its own parameter shape; sending the wrong one is a hard
   // 5006 rather than a warning, so they are declared per model.
@@ -463,7 +469,7 @@ export default {
         if (!prompt) return new Response('No prompt', { status: 400, headers });
         const png = await drawImage(env, prompt);
         return new Response(png, {
-          headers: { ...headers, 'Content-Type': 'image/png', 'Cache-Control': 'no-store' },
+          headers: { ...headers, 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' },
         });
       } catch (e) {
         return new Response(e.message || 'Image generation failed', { status: 502, headers });
