@@ -318,22 +318,45 @@ function paragraphsOf(text) {
 // The model is asked for bare JSON but will sometimes wrap it in prose or a
 // code fence, so pull the first array out rather than trusting the envelope.
 function parseScenes(raw, paraCount, want) {
+  const text = typeof raw === 'string' ? raw : JSON.stringify(raw || '');
   let out = [];
-  try {
-    const m = String(raw).match(/\[[\s\S]*\]/);
-    if (m) out = JSON.parse(m[0]);
-  } catch (e) { /* fall through to the salvage below */ }
 
-  if (!Array.isArray(out)) out = [];
+  // The model is asked for a bare array but will variously wrap it in a code
+  // fence, in prose, or in an object. Try each shape rather than trusting one.
+  const attempts = [];
+  const arr = text.match(/\[[\s\S]*\]/);
+  if (arr) attempts.push(arr[0]);
+  const obj = text.match(/\{[\s\S]*\}/);
+  if (obj) attempts.push(obj[0]);
 
-  out = out
+  for (const a of attempts) {
+    try {
+      let v = JSON.parse(a);
+      if (v && !Array.isArray(v)) v = v.scenes || v.moments || v.images || v.results;
+      if (Array.isArray(v) && v.length) { out = v; break; }
+    } catch (e) { /* try the next shape */ }
+  }
+
+  return out
     .filter(s => s && typeof s.prompt === 'string' && s.prompt.trim())
-    .map((s, i) => ({
+    .map(s => ({
       para: Math.min(paraCount - 1, Math.max(0, parseInt(s.para, 10) || 0)),
       prompt: s.prompt.trim().slice(0, 300),
     }))
     .slice(0, want);
+}
 
+// If the model will not produce usable JSON, the feature still works: take
+// evenly spaced paragraphs and build a prompt from the concrete words in each.
+// Worse images than a model-written prompt, but never a dead button.
+function fallbackScenes(paras, want) {
+  const step = Math.max(1, Math.floor(paras.length / want));
+  const out = [];
+  for (let i = 0; i < paras.length && out.length < want; i += step) {
+    const words = paras[i].replace(/["'\u2018\u2019\u201c\u201d]/g, ' ')
+      .split(/\s+/).filter(w => w.length > 3).slice(0, 26).join(' ');
+    if (words.length > 20) out.push({ para: i, prompt: words.slice(0, 300) });
+  }
   return out;
 }
 
@@ -355,8 +378,13 @@ async function buildScenes(env, text, want) {
     max_tokens: 900,
   }, m => { goodText = m; });
 
-  const scenes = parseScenes(out && (out.response || out.result || out), paras.length, want);
-  if (!scenes.length) throw new Error('Could not find scenes in this chapter.');
+  const raw = out && (out.response !== undefined ? out.response : (out.result !== undefined ? out.result : out));
+  let scenes = parseScenes(raw, paras.length, want);
+
+  if (!scenes.length) scenes = fallbackScenes(paras, want);
+  if (!scenes.length) {
+    throw new Error('No usable scenes. Model said: ' + String(raw).slice(0, 200));
+  }
   return scenes;
 }
 
