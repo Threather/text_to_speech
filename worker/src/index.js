@@ -177,7 +177,48 @@ async function readPage(raw) {
   }
 
   if (!paras.length) throw new Error('No readable text found on that page.');
-  return { title, text: paras.join('\n\n') };
+  return { title, text: paras.join('\n\n'), next: findNext(html, u) };
+}
+
+// Find the "next chapter" link so a whole run can be pulled from one starting URL.
+function findNext(html, base) {
+  const rel = html.match(/<(?:link|a)\b[^>]*\brel\s*=\s*["']?next["']?[^>]*>/i);
+  if (rel) {
+    const href = (rel[0].match(/\bhref\s*=\s*["']([^"']+)["']/i) || [])[1];
+    if (href) return absolute(href, base);
+  }
+
+  for (const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    const attrs = m[1];
+    const text = stripTags(m[2]);
+    const href = (attrs.match(/\bhref\s*=\s*["']([^"']+)["']/i) || [])[1];
+    if (!href || href.startsWith('#') || /javascript:/i.test(href)) continue;
+    // "Next chapter", "next >", or a link whose id/class says next.
+    if (/^next\b/i.test(text) || /\bnext\b/i.test(attrs)) return absolute(href, base);
+  }
+  return null;
+}
+
+function absolute(href, base) {
+  try { return new URL(href, base).toString(); } catch { return null; }
+}
+
+// Follow the chain of next-links, collecting each chapter in order.
+async function readChain(startUrl, count) {
+  const out = [];
+  const seen = new Set();
+  let url = startUrl;
+
+  for (let i = 0; i < count && url; i++) {
+    if (seen.has(url)) break;          // a site that links back on itself
+    seen.add(url);
+    const page = await readPage(url);
+    out.push({ title: page.title, text: page.text });
+    url = page.next;
+  }
+
+  if (!out.length) throw new Error('Nothing could be read from that link.');
+  return out;
 }
 
 export default {
@@ -191,6 +232,18 @@ export default {
     const origin = request.headers.get('Origin');
     if (allowed !== '*' && origin && origin !== allowed) {
       return new Response('Forbidden origin', { status: 403, headers });
+    }
+
+    if (url.pathname === '/chain') {
+      try {
+        const n = Math.min(15, Math.max(1, parseInt(url.searchParams.get('n'), 10) || 1));
+        const pages = await readChain(url.searchParams.get('url') || '', n);
+        return new Response(JSON.stringify(pages), {
+          headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      } catch (e) {
+        return new Response(e.message, { status: 400, headers });
+      }
     }
 
     if (url.pathname === '/fetch') {

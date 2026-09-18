@@ -62,6 +62,15 @@
     font:inherit; font-size:16px;
   }
   .urlpanel input:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
+  .chain{
+    display:flex; align-items:center; gap:7px; margin:10px 0 0 30px;
+    font-size:13px; color:var(--muted);
+  }
+  .chain input{
+    flex:0 0 62px; width:62px; padding:6px 8px; text-align:center;
+    border-radius:8px; border:1px solid var(--line);
+    background:transparent; color:var(--ink); font:inherit; font-size:15px;
+  }
   .urlbtns{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
   .urlbtns button{padding:9px 16px; font-size:14px; white-space:nowrap}
   .reader{
@@ -135,6 +144,12 @@
         <input class="url" type="url" inputmode="url" spellcheck="false" placeholder="optional"></div>
       <div class="urlrow"><span class="num">5</span>
         <input class="url" type="url" inputmode="url" spellcheck="false" placeholder="optional"></div>
+
+      <label class="chain">
+        <span>or follow</span>
+        <input id="chainN" type="number" min="1" max="15" step="1" value="1">
+        <span>chapters on from link 1</span>
+      </label>
 
       <div class="urlbtns">
         <button id="load" type="button">Load</button>
@@ -606,9 +621,49 @@
     return out;
   }
 
+  // With a count above 1, one link is enough — the Worker walks each page's
+  // "next chapter" link from there, so the slugs don't have to be typed out.
+  function chainCount() {
+    var n = parseInt($('chainN').value, 10);
+    return n > 1 ? Math.min(15, n) : 1;
+  }
+
+  function loadChain(append, first, n) {
+    clearErr();
+    showEditor();
+    loadBtn.disabled = addBtn.disabled = true;
+    (append ? addBtn : loadBtn).textContent = 'Loading…';
+    say('Following ' + n + ' chapters…');
+
+    fetch(WORKER_URL + '/chain?n=' + n + '&url=' + encodeURIComponent(first))
+      .then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+        return r.json();
+      })
+      .then(function (pages) {
+        var joined = pages.map(function (p) { return p.text; }).join('\n\n');
+        textEl.value = append && textEl.value.trim()
+          ? textEl.value.replace(/\s+$/, '') + '\n\n' + joined
+          : joined;
+        charsEl.textContent = textEl.value.length;
+        say('Loaded ' + pages.length + ' chapter' + (pages.length > 1 ? 's' : '') +
+            ', ' + textEl.value.split(/\n\s*\n/).length + ' paragraphs.' +
+            (pages.length < n ? ' (chain ended early)' : ''));
+      })
+      .catch(function (e) { fail(e.message); say(''); })
+      .finally(function () {
+        loadBtn.disabled = addBtn.disabled = false;
+        loadBtn.textContent = 'Load';
+        addBtn.textContent = '+ Add';
+      });
+  }
+
   function loadUrls(append) {
     var list = collectUrls();
     if (!list.length) { setPanel(true); urlInputs[0].focus(); return; }
+
+    var n = chainCount();
+    if (n > 1) return loadChain(append, list[0], n);
     if (!useWorker) { fail('Loading links needs the Worker configured.'); return; }
 
     clearErr();
