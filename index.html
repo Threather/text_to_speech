@@ -63,7 +63,7 @@
   }
   .urlpanel input:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
   .chain{
-    display:flex; align-items:center; gap:7px; margin:10px 0 0 30px;
+    display:flex; align-items:center; gap:7px; margin:10px 0 0;
     font-size:13px; color:var(--muted);
   }
   .chain input{
@@ -155,22 +155,15 @@
             aria-expanded="false">▸ Load from links</button>
 
     <div class="urlpanel hide" id="urlpanel">
-      <div class="urlrow"><span class="num">1</span>
+      <div class="urlrow">
         <input class="url" type="url" inputmode="url" spellcheck="false"
-               placeholder="first chapter link"></div>
-      <div class="urlrow"><span class="num">2</span>
-        <input class="url" type="url" inputmode="url" spellcheck="false" placeholder="then this one"></div>
-      <div class="urlrow"><span class="num">3</span>
-        <input class="url" type="url" inputmode="url" spellcheck="false" placeholder="optional"></div>
-      <div class="urlrow"><span class="num">4</span>
-        <input class="url" type="url" inputmode="url" spellcheck="false" placeholder="optional"></div>
-      <div class="urlrow"><span class="num">5</span>
-        <input class="url" type="url" inputmode="url" spellcheck="false" placeholder="optional"></div>
+               placeholder="paste a chapter link">
+      </div>
 
       <label class="chain">
-        <span>or follow</span>
+        <span>read</span>
         <input id="chainN" type="number" min="1" max="15" step="1" value="1">
-        <span>chapters on from link 1</span>
+        <span>chapters from here</span>
       </label>
 
       <div class="urlbtns">
