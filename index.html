@@ -640,15 +640,24 @@
         if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
         return r.json();
       })
-      .then(function (pages) {
+      .then(function (d) {
+        var pages = d.pages || d;              // tolerate the older shape
         var joined = pages.map(function (p) { return p.text; }).join('\n\n');
         textEl.value = append && textEl.value.trim()
           ? textEl.value.replace(/\s+$/, '') + '\n\n' + joined
           : joined;
         charsEl.textContent = textEl.value.length;
+
+        // Queue up where this run stopped, so "+ Add" just continues.
+        var more = '';
+        if (d.next) {
+          urlInputs[0].value = d.next;
+          more = ' Next up is queued in box 1 — press + Add to continue.';
+        }
+
         say('Loaded ' + pages.length + ' chapter' + (pages.length > 1 ? 's' : '') +
             ', ' + textEl.value.split(/\n\s*\n/).length + ' paragraphs.' +
-            (pages.length < n ? ' (chain ended early)' : ''));
+            (pages.length < n ? ' (chain ended early)' : '') + more);
       })
       .catch(function (e) { fail(e.message); say(''); })
       .finally(function () {

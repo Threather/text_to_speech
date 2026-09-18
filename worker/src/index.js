@@ -218,7 +218,9 @@ async function readChain(startUrl, count) {
   }
 
   if (!out.length) throw new Error('Nothing could be read from that link.');
-  return out;
+  // `url` is now whatever came after the last chapter read, so the caller can
+  // pick up from there next time.
+  return { pages: out, next: url };
 }
 
 export default {
@@ -237,8 +239,8 @@ export default {
     if (url.pathname === '/chain') {
       try {
         const n = Math.min(15, Math.max(1, parseInt(url.searchParams.get('n'), 10) || 1));
-        const pages = await readChain(url.searchParams.get('url') || '', n);
-        return new Response(JSON.stringify(pages), {
+        const result = await readChain(url.searchParams.get('url') || '', n);
+        return new Response(JSON.stringify(result), {
           headers: { ...headers, 'Content-Type': 'application/json' },
         });
       } catch (e) {
