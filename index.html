@@ -133,6 +133,15 @@
   .status{margin-top:10px; font-size:14px; color:var(--muted); min-height:20px}
   .bar{height:10px; background:var(--track); border-radius:2px; overflow:hidden; margin-top:12px}
   .bar>i{display:block; height:100%; width:0; background:var(--accent); transition:width .3s ease}
+  .quota{margin-top:14px; font-size:12px; color:var(--muted)}
+  .quotabar{
+    height:5px; background:var(--track); border-radius:3px;
+    overflow:hidden; margin-bottom:6px;
+  }
+  .quotabar>i{
+    display:block; height:100%; width:0; background:var(--accent);
+    transition:width .3s ease;
+  }
   .banner{padding:12px 14px; border-radius:10px; font-size:14px; border:1px solid; margin-top:14px}
   .banner.err{background:var(--errbg); border-color:var(--errline); color:var(--errink)}
   .banner.warn{background:var(--warnbg); border-color:var(--warnline); color:var(--warnink); margin:0 0 18px}
@@ -214,6 +223,11 @@
 
     <div class="bar hide" id="bar"><i id="barFill"></i></div>
     <div class="status" id="status">Ready.</div>
+
+    <div class="quota">
+      <div class="quotabar"><i id="quotaFill"></i></div>
+      <span id="quotaText"></span>
+    </div>
     <div id="error" class="banner err hide"></div>
   </div>
 
@@ -714,6 +728,7 @@
   try { histList.classList.toggle('hide', localStorage.getItem('histOpen') === '0'); }
   catch (e) {}
   renderHist();
+  renderQuota();
 
   toggleBtn.onclick = function () { setPanel(urlPanel.classList.contains('hide')); };
   $('clearLinks').onclick = function () {
@@ -926,8 +941,47 @@
     });
   }
 
+  // ── Free-tier meter ───────────────────────────────────────────────────
+  // Google bills by characters sent and gives 1M a month, but the console has
+  // no live "remaining" figure. Count it here instead. Per browser, per month,
+  // and only what this site sent — in-browser voices are free and don't count.
+  var FREE_LIMIT = 1000000;
+
+  function thisMonth() {
+    var d = new Date();
+    return d.getFullYear() + '-' + (d.getMonth() + 1);
+  }
+
+  function readUsed() {
+    try {
+      var u = JSON.parse(localStorage.getItem('speakUsage') || '{}');
+      return u.month === thisMonth() ? (u.chars || 0) : 0;   // resets each month
+    } catch (e) { return 0; }
+  }
+
+  function addUsed(n) {
+    try {
+      localStorage.setItem('speakUsage',
+        JSON.stringify({ month: thisMonth(), chars: readUsed() + n }));
+    } catch (e) {}
+    renderQuota();
+  }
+
+  function renderQuota() {
+    var used = readUsed();
+    var left = Math.max(0, FREE_LIMIT - used);
+    var pct = Math.min(100, (used / FREE_LIMIT) * 100);
+    $('quotaFill').style.width = pct + '%';
+    $('quotaText').textContent =
+      left.toLocaleString() + ' of ' + FREE_LIMIT.toLocaleString() +
+      ' free characters left this month';
+    $('quotaText').style.color = left < FREE_LIMIT * 0.1 ? 'var(--errink)' : '';
+  }
+
   function fetchChunk(text) {
     if (voiceEl.value.indexOf('kokoro:') === 0) return kokoroChunk(text);
+
+    addUsed(text.length);
 
     return fetch(WORKER_URL, {
       method: 'POST',
