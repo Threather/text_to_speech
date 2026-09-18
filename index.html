@@ -672,7 +672,7 @@
       pick.onclick = function () {
         urlInputs[0].value = item.url;
         urlInputs[0].focus();
-        say('Put that link in box 1.');
+        say('Link ready — press Load.');
       };
 
       var del = document.createElement('button');
@@ -753,7 +753,7 @@
         var more = '';
         if (d.next) {
           urlInputs[0].value = d.next;
-          more = ' Next up is queued in box 1 — press + Add to continue.';
+          more = ' Next chapter is queued — press + Add to continue.';
         }
 
         say('Loaded ' + pages.length + ' chapter' + (pages.length > 1 ? 's' : '') +
