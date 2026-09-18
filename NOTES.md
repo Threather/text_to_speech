@@ -39,6 +39,16 @@ auto-fills with whatever comes next, so it's Load → Speak → Load → Speak.
 and Clear all, and a show/hide toggle. Click an entry to put that link back in the box.
 Nothing leaves the browser.
 
+**Chapter imagery** — a Generate images button in setup. A text model picks five
+visually distinct moments and writes a prompt for each; flux-1-schnell draws them on
+Cloudflare's GPUs. ~2s per image, ~13s for five. Free within the Workers AI daily
+allowance. Results cache in IndexedDB keyed by a hash of the chapter, so pressing again
+costs nothing. Images appear in a right-hand rail on desktop (closed by default, opened
+from a count chip in the header, positioned so each sits level with its paragraph) and in
+a bottom sheet below 1200px. Prompts describe place, light, weather and mood only, never
+people or names — the source is a copyrighted novel, and empty landscapes look better than
+mangled figures anyway.
+
 **Usage meter** — characters left this month, read from the Worker so every visitor sees
 the same number.
 
@@ -73,6 +83,8 @@ upgraded. Free tier after upgrading is 1M Neural2/WaveNet characters a month.
 | `GET /fetch?url=` | one page → `{title, text, next}` |
 | `GET /chain?url=&n=` | follows next-links → `{pages:[{url,title,text}], next}` |
 | `GET /usage` | `{used, limit, shared}` |
+| `POST /scenes` | `{text, count}` -> `[{para, prompt}]` (a text model picks the moments) |
+| `POST /image` | `{prompt}` -> image bytes (flux-1-schnell on Workers AI) |
 
 ## How to change things
 
@@ -133,6 +145,23 @@ next chapter, which is what auto-continue depends on.
 **Patch scripts mangle regex literals.** Writing `\n` inside a Python replacement string
 put a real newline into a JS regex and broke the page twice. Use raw strings, and run a
 brace-balance check on the script before pushing.
+
+**Workers AI retires models on a schedule.** `@cf/meta/llama-3.1-8b-instruct` was
+deprecated 2026-05-30 and returned a hard 5028. The Worker now names several text models
+and uses whichever the account serves, remembering the winner.
+
+**Each Workers AI model takes its own parameter shape.** flux-1-schnell accepts
+`{prompt, steps}` and rejects `negative_prompt`/`num_steps` with a 5006 — unknown
+params are an error, not a warning. Hence the per-model candidate list in drawImage, and
+why the "no people" instruction lives in the prompt text as well.
+
+**flux returns JPEG bytes, not PNG.** The endpoint still labels them image/png; browsers
+sniff and render it fine, but a download gets a mislabelled extension. Worth fixing on the
+next Worker redeploy.
+
+**Scene JSON is not reliable.** parseScenes tries a bare array, a fenced array and a
+wrapped object; if all fail, fallbackScenes picks evenly spaced paragraphs so the button
+cannot dead-end.
 
 **KV reads are edge-cached** for up to a minute, so a fresh count can read stale. The
 counter is also read-modify-write, so simultaneous requests can lose an increment. It's a
