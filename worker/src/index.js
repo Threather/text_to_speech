@@ -35,18 +35,127 @@ function b64ToBytes(b64) {
   return out;
 }
 
+// ── Reader mode: pull the readable text out of a web page ──────────────
+// The browser can't fetch other origins itself, so this does it here.
+
+const MAX_PAGE_BYTES = 3_000_000;
+
+const ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  ldquo: '“', rdquo: '”', lsquo: '‘', rsquo: '’',
+  hellip: '…', mdash: '—', ndash: '–',
+};
+
+function decodeEntities(s) {
+  return s
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&([a-z]+);/gi, (m, name) => ENTITIES[name.toLowerCase()] ?? m);
+}
+
+function stripTags(html) {
+  return decodeEntities(
+    html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+  ).replace(/[ \t ]+/g, ' ').trim();
+}
+
+// Block anything that isn't a public web page, so this can't be used to probe
+// internal addresses.
+function safeUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  const h = u.hostname.toLowerCase();
+  if (
+    h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.internal') ||
+    /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.test(h) &&
+      (/^(10|127|0)\./.test(h) || /^192\.168\./.test(h) ||
+       /^169\.254\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h)) ||
+    h === '[::1]'
+  ) return null;
+  return u;
+}
+
+async function readPage(raw) {
+  const u = safeUrl(raw);
+  if (!u) throw new Error('That URL is not a public web address.');
+
+  const r = await fetch(u.toString(), {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; SpeakReader/1.0)',
+      Accept: 'text/html,application/xhtml+xml',
+      'Accept-Language': 'en',
+    },
+    redirect: 'follow',
+  });
+  if (!r.ok) throw new Error(`The page returned ${r.status}.`);
+
+  const type = r.headers.get('content-type') || '';
+  if (!/text\/html|application\/xhtml/i.test(type)) {
+    throw new Error('That link is not an HTML page.');
+  }
+
+  const buf = await r.arrayBuffer();
+  if (buf.byteLength > MAX_PAGE_BYTES) throw new Error('That page is too large.');
+  let html = new TextDecoder('utf-8').decode(buf);
+
+  // Drop everything that never contains prose.
+  html = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<(nav|header|footer|aside|form|noscript)[\s\S]*?<\/\1>/gi, ' ');
+
+  const title = stripTags((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [, ''])[1]);
+
+  // Collect paragraphs. Short ones that are mostly links are navigation, not text.
+  const paras = [];
+  for (const m of html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)) {
+    const inner = m[1];
+    const text = stripTags(inner);
+    if (!text) continue;
+    if (/<a\b/i.test(inner) && text.length < 60) continue;
+    paras.push(text);
+  }
+
+  // Some sites use <div> per line instead of <p>.
+  if (paras.length < 3) {
+    for (const m of html.matchAll(/<div\b[^>]*>([^<]{40,})<\/div>/gi)) {
+      const text = stripTags(m[1]);
+      if (text) paras.push(text);
+    }
+  }
+
+  if (!paras.length) throw new Error('No readable text found on that page.');
+  return { title, text: paras.join('\n\n') };
+}
+
 export default {
   async fetch(request, env) {
     const allowed = env.ALLOWED_ORIGIN || '*';
     const headers = cors(allowed);
+    const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') return new Response(null, { headers });
-    if (request.method !== 'POST') return new Response('POST only', { status: 405, headers });
 
     const origin = request.headers.get('Origin');
     if (allowed !== '*' && origin && origin !== allowed) {
       return new Response('Forbidden origin', { status: 403, headers });
     }
+
+    if (url.pathname === '/fetch') {
+      try {
+        const data = await readPage(url.searchParams.get('url') || '');
+        return new Response(JSON.stringify(data), {
+          headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      } catch (e) {
+        return new Response(e.message, { status: 400, headers });
+      }
+    }
+
+    if (request.method !== 'POST') return new Response('POST only', { status: 405, headers });
 
     if (!env.GOOGLE_KEY) {
       return new Response('Worker is missing GOOGLE_KEY', { status: 500, headers });
