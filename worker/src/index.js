@@ -71,8 +71,9 @@ export default {
 
     // Chirp voices reject pitch outright, so only send it to the families
     // that accept it.
-    // Plain 'MP3' encodes at 32kbps, which audibly dulls the HD voices.
-    const audioConfig = { audioEncoding: 'MP3_64_KBPS', speakingRate };
+    // MP3 here is 32kbps and audibly dulls the HD voices (MP3_64_KBPS is
+    // v1beta1-only). LINEAR16 is the model's own output — bigger, but exact.
+    const audioConfig = { audioEncoding: 'LINEAR16', sampleRateHertz: 24000, speakingRate };
     if (pitch && !voice.includes('Chirp')) audioConfig.pitch = pitch;
 
     const upstream = await fetch(`${ENDPOINT}?key=${env.GOOGLE_KEY}`, {
@@ -97,7 +98,7 @@ export default {
     if (!data.audioContent) return new Response('No audio returned', { status: 502, headers });
 
     return new Response(b64ToBytes(data.audioContent), {
-      headers: { ...headers, 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' },
+      headers: { ...headers, 'Content-Type': 'audio/wav', 'Cache-Control': 'no-store' },
     });
   },
 };
