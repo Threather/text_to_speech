@@ -330,6 +330,58 @@
     margin-top:var(--s-2); font-size:11px; letter-spacing:.04em;
     color:var(--ink-3); font-variant-numeric:tabular-nums;
   }
+
+  /* ── Chapter imagery ──────────────────────────────────────────────────── */
+  /* The rail sits in the void to the right of the column and is absolutely
+     positioned inside it, so it scrolls with the prose and each picture stays
+     level with its paragraph. Opening it never reflows the text. */
+  .imgrail{
+    position:absolute; top:0; left:calc(100% + var(--s-5)); width:220px;
+    display:none; pointer-events:none;
+  }
+  body.rail-open .imgrail{display:block; pointer-events:auto}
+  .imgcard{
+    margin:0; width:220px; border:1px solid var(--rule);
+    background:var(--surface-2); cursor:zoom-in;
+    transition:border-color var(--t-fast) var(--ease);
+  }
+  .imgcard:hover{border-color:var(--rule-strong)}
+  .imgcard img{display:block; width:100%; height:auto; outline:1px solid rgba(0,0,0,.1); outline-offset:-1px}
+  .imgcard figcaption{
+    padding:var(--s-2) var(--s-3); font-size:11px; line-height:1.5;
+    color:var(--ink-3); letter-spacing:.02em;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .imgcard.open{cursor:zoom-out}
+  .imgcard.open figcaption{-webkit-line-clamp:unset}
+
+  /* The sheet is the phone's answer to the rail. */
+  .imgsheet{
+    position:fixed; left:0; right:0; bottom:0; z-index:60;
+    max-height:78dvh; display:flex; flex-direction:column;
+    background:var(--surface-2); border-top:1px solid var(--rule-strong);
+    box-shadow:var(--dock-shadow);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .sheethead{
+    display:flex; align-items:center; justify-content:space-between;
+    height:var(--h-row); padding:0 var(--s-4);
+    border-bottom:1px solid var(--rule); flex:0 0 auto;
+  }
+  .sheethead button{
+    width:var(--h-micro); height:var(--h-micro); color:var(--ink-3);
+    display:flex; align-items:center; justify-content:center; border-radius:var(--r-chip);
+  }
+  .sheethead button:hover{color:var(--ink)}
+  .sheetbody{
+    flex:1; overflow-y:auto; padding:var(--s-4);
+    display:grid; gap:var(--s-4); -webkit-overflow-scrolling:touch;
+  }
+  .sheetbody .imgcard{width:100%; position:static !important}
+
+  @media (max-width:1200px){
+    body.rail-open .imgrail{display:none}
+  }
 </style>
 </head>
 <body>
@@ -338,6 +390,7 @@
   <span id="chapterId"></span>
   <span class="spacer"></span>
   <span id="partCount"></span>
+  <button id="imgChip" class="chip hide" type="button"><span id="imgCount">0</span> images</button>
   <button id="edit" class="chip hide" type="button">Edit</button>
   <button id="theme" class="chip micro" type="button" aria-label="Switch theme">◑</button>
 </header>
@@ -363,6 +416,7 @@
         </label>
         <span class="spacer"></span>
         <button id="clearLinks" class="ghost" type="button">Clear</button>
+        <button id="genImages" class="btn" type="button">Generate images</button>
         <button id="load" class="btn solid" type="button">Load</button>
       </div>
 
@@ -394,6 +448,7 @@
   <div class="readwrap hide" id="readRoom">
     <div class="spine" id="spine"></div>
     <div id="reader" class="reader hide" aria-live="off"></div>
+    <div class="imgrail" id="imgRail"></div>
   </div>
 </main>
 
@@ -412,6 +467,14 @@
   </span>
   <span class="spacer"><span id="status">Ready.</span></span>
 </footer>
+
+<div class="imgsheet hide" id="imgSheet">
+  <div class="sheethead">
+    <span class="seclabel">Chapter imagery</span>
+    <button id="sheetClose" type="button" aria-label="Close">✕</button>
+  </div>
+  <div class="sheetbody"></div>
+</div>
 
 <audio id="player" class="hide" playsinline preload="auto"></audio>
 
@@ -1432,6 +1495,169 @@
   }
   window.addEventListener('resize', reflowSpine);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', reflowSpine);
+
+  // ── Chapter imagery ───────────────────────────────────────────────────
+  // Generated in setup, before Speak, so the 30-second wait never lands in the
+  // middle of a read. Five atmospheric images, each anchored to the paragraph
+  // it came from. Cached in IndexedDB by chapter, so pressing twice is free.
+  var genBtn = $('genImages'), imgRail = $('imgRail'), imgSheet = $('imgSheet');
+  var imgChip = $('imgChip'), imgCount = $('imgCount'), sheetClose = $('sheetClose');
+  var images = [], imgUrls = [];
+
+  function hashText(t) {
+    var h = 5381;
+    for (var i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+    return 'ch' + (h >>> 0).toString(36) + ':' + t.length;
+  }
+
+  function idb() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open('speak-images', 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore('img'); };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error); };
+    });
+  }
+  function idbGet(k) {
+    return idb().then(function (db) {
+      return new Promise(function (res) {
+        var q = db.transaction('img').objectStore('img').get(k);
+        q.onsuccess = function () { res(q.result || null); };
+        q.onerror = function () { res(null); };
+      });
+    }).catch(function () { return null; });
+  }
+  function idbPut(k, v) {
+    return idb().then(function (db) {
+      db.transaction('img', 'readwrite').objectStore('img').put(v, k);
+    }).catch(function () {});
+  }
+
+  function revokeImages() {
+    imgUrls.forEach(function (u) { URL.revokeObjectURL(u); });
+    imgUrls = [];
+  }
+
+  function card(item, i) {
+    var url = URL.createObjectURL(item.blob);
+    imgUrls.push(url);
+    var fig = document.createElement('figure');
+    fig.className = 'imgcard';
+    var im = document.createElement('img');
+    im.src = url;
+    im.alt = item.prompt;
+    im.loading = 'lazy';
+    im.decoding = 'async';
+    var cap = document.createElement('figcaption');
+    cap.textContent = item.prompt;
+    fig.appendChild(im);
+    fig.appendChild(cap);
+    fig.onclick = function () { fig.classList.toggle('open'); };
+    return fig;
+  }
+
+  // The rail lives inside the scrolling column, so it scrolls with the prose —
+  // each image ends up level with the paragraph it came from, no scroll handler.
+  function placeImages() {
+    imgRail.innerHTML = '';
+    if (!images.length || readerEl.classList.contains('hide')) return;
+    var paras = [].slice.call(readerEl.querySelectorAll('.para'));
+    if (!paras.length) return;
+
+    var lastBottom = -1e9;
+    images.forEach(function (item, i) {
+      var p = paras[Math.min(paras.length - 1, item.para)] || paras[0];
+      var fig = card(item, i);
+      fig.style.position = 'absolute';
+      // Never let two cards collide; push down when the anchors are close.
+      var top = Math.max(p.offsetTop, lastBottom + 24);
+      fig.style.top = top + 'px';
+      lastBottom = top + 190;
+      imgRail.appendChild(fig);
+    });
+  }
+
+  function fillSheet() {
+    imgSheet.querySelector('.sheetbody').innerHTML = '';
+    var body = imgSheet.querySelector('.sheetbody');
+    images.forEach(function (item, i) { body.appendChild(card(item, i)); });
+  }
+
+  function renderImages() {
+    revokeImages();
+    imgCount.textContent = images.length;
+    imgChip.classList.toggle('hide', !images.length);
+    placeImages();
+    fillSheet();
+  }
+
+  imgChip.onclick = function () {
+    if (window.innerWidth <= 1200) {
+      imgSheet.classList.toggle('hide');
+    } else {
+      document.body.classList.toggle('rail-open');
+    }
+  };
+  sheetClose.onclick = function () { imgSheet.classList.add('hide'); };
+
+  genBtn.onclick = function () {
+    var text = textEl.value.trim();
+    if (!text) { say('Load a chapter first.'); return; }
+    if (!useWorker) { fail('Image generation needs the Worker configured.'); return; }
+
+    clearErr();
+    genBtn.disabled = true;
+    var key = hashText(text);
+
+    idbGet(key).then(function (cached) {
+      if (cached && cached.length) {
+        images = cached;
+        renderImages();
+        say(cached.length + ' images ready (from this device).');
+        return null;
+      }
+      genBtn.textContent = 'Reading the chapter…';
+      return fetch(WORKER_URL + '/scenes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text, count: 5 })
+      }).then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error(t || 'HTTP ' + r.status); });
+        return r.json();
+      }).then(function (scenes) {
+        images = [];
+        // One at a time, so each picture appears as it lands.
+        return scenes.reduce(function (chain, sc, i) {
+          return chain.then(function () {
+            genBtn.textContent = 'Drawing ' + (i + 1) + ' of ' + scenes.length + '…';
+            return fetch(WORKER_URL + '/image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt: sc.prompt })
+            }).then(function (r) {
+              if (!r.ok) return r.text().then(function (t) { throw new Error(t || 'HTTP ' + r.status); });
+              return r.blob();
+            }).then(function (blob) {
+              images.push({ para: sc.para, prompt: sc.prompt, blob: blob });
+              renderImages();
+            });
+          });
+        }, Promise.resolve()).then(function () {
+          if (images.length) idbPut(key, images);
+          say(images.length + ' images ready.');
+        });
+      });
+    }).catch(function (e) {
+      fail(e.message || 'Could not generate images.');
+    }).finally(function () {
+      genBtn.disabled = false;
+      genBtn.textContent = 'Generate images';
+    });
+  };
+
+  new MutationObserver(function () { placeImages(); })
+    .observe(readerEl, { attributes: true, attributeFilter: ['class'] });
+  window.addEventListener('resize', function () { placeImages(); });
 
   urlPanel.classList.remove('hide');   // the loader is permanent in this layout
   syncHasText();

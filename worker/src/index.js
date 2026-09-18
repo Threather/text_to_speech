@@ -248,6 +248,101 @@ async function readChain(startUrl, count) {
   return { pages: out, next: url };
 }
 
+// ── Chapter imagery, on Cloudflare's own GPUs ──────────────────────────
+// Two steps so pictures arrive one at a time instead of as one huge payload:
+//   POST /scenes  {text, count} -> [{para, prompt}]   (a text model reads the chapter)
+//   POST /image   {prompt}      -> image/png          (SDXL-Lightning draws one)
+//
+// The scene prompts describe PLACE, LIGHT, WEATHER and MOOD only, never a
+// person or a named figure: the source text is someone's copyrighted novel,
+// and atmosphere is both the safe answer and the better-looking one.
+
+const TEXT_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const IMAGE_MODEL = '@cf/bytedance/stable-diffusion-xl-lightning';
+
+const MAX_SCENE_TEXT = 12000;   // plenty for a chapter; keeps the model prompt sane
+const MAX_SCENES = 5;
+
+const SCENE_RULES =
+  'You are given a passage of prose. Choose the most visually distinct moments in it ' +
+  'and write one image prompt for each.\n\n' +
+  'HARD RULES:\n' +
+  '- Describe only PLACE, ARCHITECTURE, LANDSCAPE, WEATHER, LIGHT, OBJECTS and MOOD.\n' +
+  '- Never describe a person, character, figure, creature or any living being. No faces, no bodies, no silhouettes of people.\n' +
+  '- Never use a proper name from the text.\n' +
+  '- No lettering, no logos, no captions in the image.\n' +
+  '- 12 to 30 words each. Concrete nouns and light, not plot.\n' +
+  '- Each prompt must depict a different location or time of day from the others.\n\n' +
+  'Return ONLY a JSON array, no prose around it, in this exact shape:\n' +
+  '[{"para":0,"prompt":"..."}]\n' +
+  'where "para" is the 0-based index of the paragraph the moment belongs to.';
+
+function paragraphsOf(text) {
+  return text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+}
+
+// The model is asked for bare JSON but will sometimes wrap it in prose or a
+// code fence, so pull the first array out rather than trusting the envelope.
+function parseScenes(raw, paraCount, want) {
+  let out = [];
+  try {
+    const m = String(raw).match(/\[[\s\S]*\]/);
+    if (m) out = JSON.parse(m[0]);
+  } catch (e) { /* fall through to the salvage below */ }
+
+  if (!Array.isArray(out)) out = [];
+
+  out = out
+    .filter(s => s && typeof s.prompt === 'string' && s.prompt.trim())
+    .map((s, i) => ({
+      para: Math.min(paraCount - 1, Math.max(0, parseInt(s.para, 10) || 0)),
+      prompt: s.prompt.trim().slice(0, 300),
+    }))
+    .slice(0, want);
+
+  return out;
+}
+
+async function buildScenes(env, text, want) {
+  const paras = paragraphsOf(text);
+  if (!paras.length) throw new Error('No text to read.');
+
+  // Number the paragraphs so the model can point at one.
+  const numbered = paras
+    .map((p, i) => `[${i}] ${p}`)
+    .join('\n\n')
+    .slice(0, MAX_SCENE_TEXT);
+
+  const r = await env.AI.run(TEXT_MODEL, {
+    messages: [
+      { role: 'system', content: SCENE_RULES },
+      { role: 'user', content: `Choose ${want} moments from this passage.\n\n${numbered}` },
+    ],
+    max_tokens: 900,
+  });
+
+  const scenes = parseScenes(r && r.response, paras.length, want);
+  if (!scenes.length) throw new Error('Could not find scenes in this chapter.');
+  return scenes;
+}
+
+async function drawImage(env, prompt) {
+  // A house style, so five images from one chapter read as one set.
+  const styled =
+    prompt +
+    ', atmospheric matte painting, muted warm palette, volumetric light, ' +
+    'deep shadow, painterly, no people, no text';
+
+  const res = await env.AI.run(IMAGE_MODEL, {
+    prompt: styled,
+    negative_prompt: 'people, person, face, figure, crowd, text, watermark, signature, logo, letters',
+    num_steps: 8,
+  });
+
+  // Workers AI returns a stream of PNG bytes for image models.
+  return res;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const allowed = env.ALLOWED_ORIGIN || '*';
@@ -259,6 +354,37 @@ export default {
     const origin = request.headers.get('Origin');
     if (allowed !== '*' && origin && origin !== allowed) {
       return new Response('Forbidden origin', { status: 403, headers });
+    }
+
+    if (url.pathname === '/scenes') {
+      if (request.method !== 'POST') return new Response('POST only', { status: 405, headers });
+      if (!env.AI) return new Response('Workers AI is not bound to this Worker', { status: 500, headers });
+      try {
+        const b = await request.json();
+        const want = Math.min(MAX_SCENES, Math.max(1, parseInt(b.count, 10) || 5));
+        const scenes = await buildScenes(env, String(b.text || ''), want);
+        return new Response(JSON.stringify(scenes), {
+          headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      } catch (e) {
+        return new Response(e.message || 'Scene selection failed', { status: 502, headers });
+      }
+    }
+
+    if (url.pathname === '/image') {
+      if (request.method !== 'POST') return new Response('POST only', { status: 405, headers });
+      if (!env.AI) return new Response('Workers AI is not bound to this Worker', { status: 500, headers });
+      try {
+        const b = await request.json();
+        const prompt = String(b.prompt || '').trim().slice(0, 300);
+        if (!prompt) return new Response('No prompt', { status: 400, headers });
+        const png = await drawImage(env, prompt);
+        return new Response(png, {
+          headers: { ...headers, 'Content-Type': 'image/png', 'Cache-Control': 'no-store' },
+        });
+      } catch (e) {
+        return new Response(e.message || 'Image generation failed', { status: 502, headers });
+      }
     }
 
     if (url.pathname === '/usage') {
