@@ -71,7 +71,8 @@ export default {
 
     // Chirp voices reject pitch outright, so only send it to the families
     // that accept it.
-    const audioConfig = { audioEncoding: 'MP3', speakingRate };
+    // Plain 'MP3' encodes at 32kbps, which audibly dulls the HD voices.
+    const audioConfig = { audioEncoding: 'MP3_64_KBPS', speakingRate };
     if (pitch && !voice.includes('Chirp')) audioConfig.pitch = pitch;
 
     const upstream = await fetch(`${ENDPOINT}?key=${env.GOOGLE_KEY}`, {
