@@ -45,6 +45,18 @@
     padding:10px; border-radius:9px; border:1px solid var(--line);
     background:var(--panel); color:var(--ink); font:inherit; font-size:16px; width:100%;
   }
+  .reader{
+    max-height:46vh; overflow-y:auto; padding:14px; border:1px solid var(--line);
+    border-radius:10px; line-height:1.9; font-size:17px;
+    -webkit-overflow-scrolling:touch;
+  }
+  .reader .chunk{color:var(--muted); transition:color .2s}
+  .reader .chunk.done{color:var(--muted); opacity:.55}
+  .reader .chunk.live{color:var(--ink)}
+  .reader .w{border-radius:4px; padding:1px 0}
+  .reader .w.spoken{color:var(--ink)}
+  .reader .w.now{background:var(--accent); color:var(--accent-ink); padding:1px 3px; margin:0 -3px}
+  .ghost{margin-top:10px; padding:7px 12px; font-size:13px}
   .row{margin-top:14px}
   .sliders{display:flex; gap:16px; margin-top:14px; flex-wrap:wrap}
   .sliders>div{flex:1; min-width:140px}
@@ -87,6 +99,8 @@
 
   <div class="card">
     <textarea id="text" placeholder="Paste or type your text here…" spellcheck="false"></textarea>
+    <div id="reader" class="reader hide" aria-live="off"></div>
+    <button id="edit" class="ghost hide" type="button">✎ Edit text</button>
 
     <div class="row">
       <label for="voice">Voice</label>
@@ -442,7 +456,89 @@
     } catch (e) {}
   }
 
-  function playUrl(url) {
+  var readerEl = $('reader'), editBtn = $('edit');
+  var chunkEls = [];          // one <span class="chunk"> per chunk
+  var lastWord = null;
+
+  // Render the whole text as chunk spans, each holding word spans. Words carry
+  // their length so the highlight can advance proportionally to characters
+  // rather than jumping evenly — long words take longer to say.
+  function buildReader(chunks) {
+    readerEl.innerHTML = '';
+    chunkEls = [];
+    chunks.forEach(function (c) {
+      var cs = document.createElement('span');
+      cs.className = 'chunk';
+      var words = c.split(/(\s+)/);
+      var total = 0;
+      var spans = [];
+      words.forEach(function (w) {
+        if (/^\s+$/.test(w)) { cs.appendChild(document.createTextNode(w)); return; }
+        var ws = document.createElement('span');
+        ws.className = 'w';
+        ws.textContent = w;
+        total += w.length;
+        ws.__len = w.length;
+        spans.push(ws);
+        cs.appendChild(ws);
+      });
+      cs.__words = spans;
+      cs.__total = total || 1;
+      cs.appendChild(document.createTextNode(' '));
+      chunkEls.push(cs);
+      readerEl.appendChild(cs);
+    });
+    textEl.classList.add('hide');
+    readerEl.classList.remove('hide');
+    editBtn.classList.remove('hide');
+  }
+
+  function showEditor() {
+    readerEl.classList.add('hide');
+    editBtn.classList.add('hide');
+    textEl.classList.remove('hide');
+  }
+  editBtn.onclick = function () { if (!running) showEditor(); };
+
+  // Called on every timeupdate while a chunk plays.
+  function highlight(cs, ratio) {
+    var target = ratio * cs.__total;
+    var acc = 0, hit = null;
+    for (var i = 0; i < cs.__words.length; i++) {
+      acc += cs.__words[i].__len;
+      if (acc >= target) { hit = cs.__words[i]; break; }
+    }
+    if (!hit || hit === lastWord) return;
+    if (lastWord) { lastWord.classList.remove('now'); lastWord.classList.add('spoken'); }
+    hit.classList.add('now');
+    lastWord = hit;
+
+    // Keep the live word in view without yanking the page around.
+    var r = hit.getBoundingClientRect(), rr = readerEl.getBoundingClientRect();
+    if (r.top < rr.top + 40 || r.bottom > rr.bottom - 40) {
+      readerEl.scrollTop += (r.top - rr.top) - readerEl.clientHeight / 2;
+    }
+  }
+
+  function playUrl(url, cs) {
+    return new Promise(function (resolve, reject) {
+      player.src = url;
+      player.ontimeupdate = cs ? function () {
+        if (player.duration) highlight(cs, player.currentTime / player.duration);
+      } : null;
+      player.onended = function () {
+        if (cs) {
+          cs.__words.forEach(function (w) { w.classList.remove('now'); w.classList.add('spoken'); });
+          cs.classList.remove('live'); cs.classList.add('done');
+          lastWord = null;
+        }
+        resolve();
+      };
+      player.onerror = function () { reject(new Error('Playback failed')); };
+      var p = player.play();
+      if (p && p.catch) p.catch(reject);
+    });
+  }
     return new Promise(function (resolve, reject) {
       player.src = url;
       player.onended = resolve;
@@ -548,6 +644,8 @@
     say('Connecting…');
     progress(0);
 
+    buildReader(chunks);
+
     for (var i = 0; i < Math.min(LOOKAHEAD, chunks.length); i++) {
       queue[i] = fetchChunk(chunks[i]);
     }
@@ -571,7 +669,12 @@
           ? label + ' — part ' + (idx + 1) + ' of ' + chunks.length
           : 'Playing ' + label + '…');
         progress((idx / chunks.length) * 100);
-        return playUrl(url);
+        var cs = chunkEls[idx];
+        if (cs) {
+          cs.classList.add('live');
+          cs.scrollIntoView({ block: 'nearest' });
+        }
+        return playUrl(url, cs);
       }).then(next).catch(function (e) {
         busy(false); running = false; progress(null);
         if (cancelled) { say('Stopped.'); return; }
@@ -599,7 +702,8 @@
 
   stopBtn.onclick = function () {
     cancelled = true;
-    player.pause(); player.currentTime = 0; player.onended = null;
+    player.pause(); player.currentTime = 0; player.onended = null; player.ontimeupdate = null;
+    if (lastWord) { lastWord.classList.remove('now'); lastWord = null; }
     if (!useWorker && window.speechSynthesis) speechSynthesis.cancel();
     busy(false); running = false; progress(null);
     say('Stopped.');
