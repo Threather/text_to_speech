@@ -111,8 +111,9 @@
   <div class="card">
     <div class="urlbar" id="urlbar">
       <input id="url" type="url" inputmode="url" spellcheck="false"
-             placeholder="…or paste a page link to load its text">
+             placeholder="…or paste page links — several at once is fine">
       <button id="load" type="button">Load</button>
+      <button id="add" type="button">+ Add</button>
     </div>
 
     <textarea id="text" placeholder="Paste or type your text here…" spellcheck="false"></textarea>
@@ -542,39 +543,62 @@
   editBtn.onclick = function () { if (!running) showEditor(); };
 
   // ── Load a page's text through the Worker (the browser can't fetch it) ──
-  var urlEl = $('url'), loadBtn = $('load');
+  var urlEl = $('url'), loadBtn = $('load'), addBtn = $('add');
 
-  function loadUrl() {
-    var u = urlEl.value.trim();
-    if (!u) { urlEl.focus(); return; }
+  function fetchOne(u) {
+    return fetch(WORKER_URL + '/fetch?url=' + encodeURIComponent(u))
+      .then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+        return r.json();
+      });
+  }
+
+  // Paste one link or several — whitespace, commas and newlines all separate them.
+  function loadUrls(append) {
+    var list = urlEl.value.split(/[\s,]+/).filter(Boolean);
+    if (!list.length) { urlEl.focus(); return; }
     if (!useWorker) { fail('Loading links needs the Worker configured.'); return; }
 
     clearErr();
     showEditor();
-    loadBtn.disabled = true;
-    loadBtn.textContent = 'Loading…';
-    say('Fetching the page…');
+    loadBtn.disabled = addBtn.disabled = true;
+    (append ? addBtn : loadBtn).textContent = 'Loading…';
 
-    fetch(WORKER_URL + '/fetch?url=' + encodeURIComponent(u))
-      .then(function (r) {
-        if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
-        return r.json();
-      })
-      .then(function (d) {
-        textEl.value = d.text;
-        charsEl.textContent = d.text.length;
-        var paras = d.text.split(/\n\s*\n/).length;
-        say('Loaded ' + paras + ' paragraphs' + (d.title ? ' — ' + d.title : '') + '.');
-      })
-      .catch(function (e) { fail(e.message); say(''); })
-      .finally(function () {
-        loadBtn.disabled = false;
-        loadBtn.textContent = 'Load';
+    var out = [], titles = [], failed = 0;
+
+    // One at a time, in the order given, so chapters stay in sequence.
+    list.reduce(function (chain, u, i) {
+      return chain.then(function () {
+        say('Fetching ' + (i + 1) + ' of ' + list.length + '…');
+        return fetchOne(u)
+          .then(function (d) { out.push(d.text); if (d.title) titles.push(d.title); })
+          .catch(function () { failed++; });
       });
+    }, Promise.resolve()).then(function () {
+      if (!out.length) { fail('Could not load any of those links.'); say(''); return; }
+
+      var joined = out.join('\n\n');
+      textEl.value = append && textEl.value.trim()
+        ? textEl.value.replace(/\s+$/, '') + '\n\n' + joined
+        : joined;
+      charsEl.textContent = textEl.value.length;
+      urlEl.value = '';
+
+      var paras = textEl.value.split(/\n\s*\n/).length;
+      say('Loaded ' + out.length + ' page' + (out.length > 1 ? 's' : '') +
+          ', ' + paras + ' paragraphs' +
+          (failed ? ' (' + failed + ' failed)' : '') +
+          (titles.length === 1 ? ' — ' + titles[0] : '') + '.');
+    }).finally(function () {
+      loadBtn.disabled = addBtn.disabled = false;
+      loadBtn.textContent = 'Load';
+      addBtn.textContent = '+ Add';
+    });
   }
 
-  loadBtn.onclick = loadUrl;
-  urlEl.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); loadUrl(); } };
+  loadBtn.onclick = function () { loadUrls(false); };
+  addBtn.onclick  = function () { loadUrls(true); };
+  urlEl.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); loadUrls(false); } };
 
   // Click any paragraph to hear it again from its start.
   readerEl.onclick = function (e) {
