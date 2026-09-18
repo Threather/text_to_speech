@@ -4,236 +4,416 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Speak</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap">
 <style>
+  /* ── Tokens. Light authored first; dark authored, not derived. ────────── */
   :root{
-    --bg:#f6f5f3; --panel:#fff; --ink:#16151a; --muted:#6b6a72;
-    --line:#e2e0dc; --accent:#2f5bd8; --accent-ink:#fff;
-    --shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px rgba(0,0,0,.06);
-    --errbg:#fdeaea; --errline:#f5bcbc; --errink:#8a2020;
-    --warnbg:#fff4e5; --warnline:#ffd9a0; --warnink:#6b4a10;
-    --track:#e8e6e2;
+    --room:#E8E5DF; --page:#FBFAF7; --surface-2:#F4F2ED; --surface-3:#FFFFFF;
+    --rule:#DCD8D0; --rule-strong:#C3BEB3;
+
+    /* Ink by reading state. AHEAD of the voice is full ink — eyes read ahead. */
+    --ink:#17191D; --ink-2:#4A4D53; --ink-3:#6E7178; --ink-spent:#6F6D67;
+
+    /* ember = "the voice is here". Nothing else may use it. */
+    --ember:#A85409; --ember-wash:rgba(168,84,9,.13);
+    --rail-played:rgba(168,84,9,.72);
+
+    --spine:#CBC6BC; --spine-lit:#9A948A;
+    --alert:#B3261E; --alert-wash:rgba(179,38,30,.10);
+    --warn-wash:rgba(168,84,9,.09);
+    --dock-shadow:0 -1px 0 var(--rule), 0 -10px 24px rgba(40,30,14,.07);
+
+    --font-prose:'Literata',Georgia,'Times New Roman',serif;
+    --font-ui:'Archivo',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+
+    --r-chip:6px; --r-field:10px; --r-round:999px;
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px;
+    --s-6:32px; --s-7:48px; --s-8:64px;
+    --h-micro:28px; --h-chip:32px; --h-row:44px; --h-field:56px;
+    --bar-head:48px; --bar-dock:64px;
+    --measure:60ch; --spine-gutter:28px;
+    --t-fast:120ms; --t-base:160ms; --ease:cubic-bezier(.2,.7,.3,1);
   }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]){
-      --bg:#131316; --panel:#1c1c20; --ink:#f0eff2; --muted:#9b9aa3;
-      --line:#2e2e34; --accent:#7c9bff; --accent-ink:#10101a;
-      --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3);
-      --errbg:#2d1616; --errline:#5e2626; --errink:#ffb4b4;
-      --warnbg:#2b2113; --warnline:#5c4620; --warnink:#f0d5a8;
-      --track:#2a2a30;
-    }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+    --room:#0C0D10; --page:#0C0D10; --surface-2:#16191D; --surface-3:#07080A;
+    --rule:#262A30; --rule-strong:#363B43;
+    --ink:#C6C1B7; --ink-2:#A6A7AB; --ink-3:#85888F; --ink-spent:#878379;
+    --ember:#FF9E3D; --ember-wash:rgba(255,158,61,.16);
+    --rail-played:rgba(255,158,61,.72);
+    --spine:#31353C; --spine-lit:#5E636B;
+    --alert:#FF8A7A; --alert-wash:rgba(255,138,122,.12);
+    --warn-wash:rgba(255,158,61,.10);
+    --dock-shadow:0 -1px 0 var(--rule), 0 -14px 32px rgba(0,0,0,.55);
+  }}
+  :root[data-theme="dark"]{
+    --room:#0C0D10; --page:#0C0D10; --surface-2:#16191D; --surface-3:#07080A;
+    --rule:#262A30; --rule-strong:#363B43;
+    --ink:#C6C1B7; --ink-2:#A6A7AB; --ink-3:#85888F; --ink-spent:#878379;
+    --ember:#FF9E3D; --ember-wash:rgba(255,158,61,.16);
+    --rail-played:rgba(255,158,61,.72);
+    --spine:#31353C; --spine-lit:#5E636B;
+    --alert:#FF8A7A; --alert-wash:rgba(255,138,122,.12);
+    --warn-wash:rgba(255,158,61,.10);
+    --dock-shadow:0 -1px 0 var(--rule), 0 -14px 32px rgba(0,0,0,.55);
   }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{transition-duration:1ms !important; animation-duration:1ms !important}
+  }
+
   *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
   body{
-    margin:0; background:var(--bg); color:var(--ink);
-    font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-    display:flex; justify-content:center; padding:32px 20px 56px;
-    -webkit-text-size-adjust:100%;
+    margin:0; background:var(--room); color:var(--ink);
+    font:400 13px/1.5 var(--font-ui);
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:calc(var(--bar-dock) + env(safe-area-inset-bottom));
   }
-  main{width:100%; max-width:min(1600px, 96vw)}
-  h1{font-size:32px; letter-spacing:-.02em; margin:0 0 4px}
-  .sub{color:var(--muted); margin:0 0 22px; font-size:15px}
-  .card{background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:24px; box-shadow:var(--shadow)}
-  textarea{
-    width:100%; min-height:58vh; resize:vertical; padding:26px 30px;
-    background:transparent; color:var(--ink); border:1px solid var(--line);
-    border-radius:10px; font:inherit; line-height:1.9; font-size:18px;
+  button{font:inherit; color:inherit; cursor:pointer; background:none; border:0}
+  .hide{display:none !important}
+
+  /* ── Header ───────────────────────────────────────────────────────────── */
+  .topbar{
+    position:sticky; top:0; z-index:40; height:var(--bar-head);
+    display:flex; align-items:center; gap:var(--s-3);
+    padding:0 var(--s-5); background:var(--room);
+    border-bottom:1px solid var(--rule);
+    transition:border-color var(--t-fast) var(--ease);
   }
-  textarea:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
-  label{font-size:12px; color:var(--muted); display:block; margin-bottom:5px; letter-spacing:.02em}
-  select{
-    padding:10px; border-radius:9px; border:1px solid var(--line);
-    background:var(--panel); color:var(--ink); font:inherit; font-size:16px; width:100%;
+  .wordmark{
+    font-size:11px; font-weight:700; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--ink-3); margin:0;
   }
-  .linktoggle{margin:0 0 10px; display:block}
-  .urlpanel{
-    border:1px solid var(--line); border-radius:10px;
-    padding:12px; margin-bottom:12px;
+  #chapterId{
+    font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    max-width:46vw;
   }
-  .urlrow{display:flex; align-items:center; gap:8px; margin-bottom:7px}
-  .urlrow .num{
-    flex:0 0 22px; height:22px; border-radius:50%; background:var(--track);
-    color:var(--muted); font-size:12px; display:flex; align-items:center;
-    justify-content:center; font-variant-numeric:tabular-nums;
+  .topbar .spacer{flex:1}
+  #partCount{
+    font-size:11px; letter-spacing:.04em; color:var(--ink-3);
+    font-variant-numeric:tabular-nums; white-space:nowrap;
   }
-  .urlpanel input{
-    flex:1; min-width:0; padding:12px 14px; border-radius:9px;
-    border:1px solid var(--line); background:transparent; color:var(--ink);
-    font:inherit; font-size:16px;
+
+  /* ── Chips and buttons ────────────────────────────────────────────────── */
+  .chip{
+    height:var(--h-chip); padding:0 var(--s-3); border-radius:var(--r-chip);
+    border:1px solid var(--rule-strong); color:var(--ink-2);
+    font-size:13px; font-weight:500; display:inline-flex; align-items:center; gap:6px;
+    transition:color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
   }
-  .urlpanel input:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
-  .chain{
-    display:flex; align-items:center; gap:7px; margin:10px 0 0;
-    font-size:13px; color:var(--muted);
+  .chip:hover{color:var(--ink); border-color:var(--ink-3)}
+  .chip:active{transform:scale(.97)}
+  .chip.micro{height:var(--h-micro); padding:0 var(--s-2); font-size:11px}
+  .btn{
+    height:var(--h-row); padding:0 var(--s-5); border-radius:var(--r-chip);
+    border:1px solid var(--rule-strong); color:var(--ink);
+    font-size:15px; font-weight:600; letter-spacing:-.005em;
+    display:inline-flex; align-items:center; justify-content:center;
+    transition:border-color var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
   }
-  .chain input{
-    flex:0 0 62px; width:62px; padding:6px 8px; text-align:center;
-    border-radius:8px; border:1px solid var(--line);
-    background:transparent; color:var(--ink); font:inherit; font-size:15px;
+  .btn:hover:not(:disabled){border-color:var(--ink-3)}
+  .btn:active:not(:disabled){transform:scale(.98)}
+  .btn.solid{background:var(--ink); color:var(--page); border-color:transparent}
+  .btn.solid:hover:not(:disabled){filter:brightness(1.18)}
+  .btn:disabled,.chip:disabled{opacity:.4; cursor:not-allowed}
+  .ghost{
+    border:0; color:var(--ink-3); font-size:13px; font-weight:500;
+    padding:6px 0; transition:color var(--t-fast) var(--ease);
   }
-  .hist{margin-top:14px; border-top:1px solid var(--line); padding-top:12px}
-  .histhead{
-    display:flex; align-items:center; justify-content:space-between;
-    font-size:12px; color:var(--muted); letter-spacing:.02em;
+  .ghost:hover{color:var(--ink)}
+  :focus-visible{outline:2px solid var(--ember); outline-offset:2px; border-radius:2px}
+
+  /* ── Setup room ───────────────────────────────────────────────────────── */
+  .setup{max-width:720px; margin:0 auto; padding:var(--s-7) var(--s-6) var(--s-8)}
+
+  /* The command field is the focal element of setup. */
+  #text{
+    display:block; width:100%; min-height:var(--h-field); height:var(--h-field);
+    max-height:52vh; resize:none; overflow:hidden;
+    padding:var(--s-4) var(--s-5);
+    background:var(--surface-3); color:var(--ink);
+    border:1px solid var(--rule-strong); border-radius:var(--r-field);
+    font:400 19px/1.6 var(--font-prose);
+    transition:border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
   }
-  .histhead button{margin:0}
-  .histtoggle{
-    background:none; border:0; padding:2px 0; color:var(--muted);
-    font:inherit; font-size:12px; letter-spacing:.02em; cursor:pointer;
+  #text::placeholder{color:var(--ink-3); font-style:italic}
+  #text:focus{
+    outline:0; border-color:var(--ember);
+    box-shadow:0 0 0 3px var(--ember-wash);
   }
-  .histtoggle:hover{color:var(--ink)}
-  .hist ul{list-style:none; margin:8px 0 0; padding:0; max-height:170px; overflow-y:auto}
-  .hist li{
-    display:flex; align-items:center; gap:8px; padding:5px 6px;
-    border-radius:7px; font-size:13px;
+  body.has-text #text{height:auto; min-height:32vh; overflow:auto; resize:vertical}
+
+  .loadrow{
+    display:flex; align-items:center; gap:var(--s-4);
+    margin-top:var(--s-4); flex-wrap:wrap;
   }
-  .hist li:hover{background:var(--track)}
-  .hist li button.pick{
-    flex:1; min-width:0; text-align:left; background:none; border:0; padding:4px 2px;
-    color:var(--ink); font:inherit; font-size:13px; cursor:pointer;
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  .stepper{
+    display:inline-flex; align-items:center; gap:var(--s-2);
+    font-size:13px; color:var(--ink-3);
   }
-  .hist li button.del{
-    flex:0 0 auto; padding:2px 8px; font-size:14px; line-height:1.4;
-    color:var(--muted); background:none; border:0; cursor:pointer; margin:0;
+  #chainN{
+    width:58px; height:var(--h-micro); text-align:center;
+    background:var(--surface-3); color:var(--ink);
+    border:1px solid var(--rule-strong); border-radius:var(--r-chip);
+    font:400 16px/1 var(--font-ui); font-variant-numeric:tabular-nums;
   }
-  .hist li button.del:hover{color:var(--errink)}
-  .urlbtns{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
-  .urlbtns button{padding:9px 16px; font-size:14px; white-space:nowrap}
-  .reader{
-    max-height:70vh; overflow-y:auto; padding:26px 30px; border:1px solid var(--line);
-    border-radius:10px; line-height:2; font-size:18px;
-    -webkit-overflow-scrolling:touch;
+  .loadrow .spacer{flex:1}
+  .urlrow{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+
+  /* ── History ──────────────────────────────────────────────────────────── */
+  #hist{margin-top:var(--s-7); border-top:1px solid var(--rule); padding-top:var(--s-4)}
+  .histhead{display:flex; align-items:center; justify-content:space-between}
+  .histtoggle{font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase}
+  #histList{list-style:none; margin:var(--s-2) 0 0; padding:0; max-height:288px; overflow-y:auto}
+  #histList li{
+    display:flex; align-items:center; gap:var(--s-3); height:var(--h-row);
+    border-bottom:1px solid var(--rule);
   }
-  .reader .para{margin:0 0 1.1em; cursor:pointer; border-radius:6px; padding:2px 4px; margin-left:-4px}
-  .reader .para:hover{background:color-mix(in srgb, var(--accent) 10%, transparent)}
-  .reader .para:last-child{margin-bottom:0}
-  .reader .chunk{color:var(--muted); transition:color .2s}
-  .reader .chunk.done{color:var(--muted); opacity:.55}
-  .reader .chunk.live{color:var(--ink)}
-  .reader .w{border-radius:4px; padding:1px 0}
-  .reader .w.spoken{color:var(--ink)}
-  .reader .w.now{background:var(--accent); color:var(--accent-ink); padding:1px 3px; margin:0 -3px}
-  .ghost{margin-top:10px; padding:7px 12px; font-size:13px}
-  .row{margin-top:14px}
-  .sliders{display:flex; gap:16px; margin-top:14px; flex-wrap:wrap}
-  .sliders>div{flex:1; min-width:140px}
-  input[type=range]{width:100%; accent-color:var(--accent)}
-  .buttons{display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; align-items:center}
-  button{
-    padding:12px 20px; border-radius:9px; border:1px solid var(--line);
-    background:var(--panel); color:var(--ink); font:inherit; font-weight:500; cursor:pointer;
-    -webkit-tap-highlight-color:transparent;
+  #histList li:last-child{border-bottom:0}
+  #histList button.pick{
+    flex:1; min-width:0; text-align:left; font-size:13px; font-weight:500;
+    color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    transition:color var(--t-fast) var(--ease);
   }
-  button:hover:not(:disabled){border-color:var(--muted)}
-  button.primary{background:var(--accent); color:var(--accent-ink); border-color:transparent}
-  button:disabled{opacity:.45; cursor:not-allowed}
-  a.dl{text-decoration:none}
-  .count{margin-left:auto; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
-  .status{margin-top:10px; font-size:14px; color:var(--muted); min-height:20px}
-  .bar{height:10px; background:var(--track); border-radius:2px; overflow:hidden; margin-top:12px}
-  .bar>i{display:block; height:100%; width:0; background:var(--accent); transition:width .3s ease}
-  .quota{margin-top:14px; font-size:12px; color:var(--muted)}
-  .quotabar{
-    height:5px; background:var(--track); border-radius:3px;
-    overflow:hidden; margin-bottom:6px;
+  #histList li:hover button.pick{color:var(--ink)}
+  #histList button.del{
+    width:var(--h-micro); height:var(--h-micro); color:var(--ink-3); font-size:15px;
+    display:flex; align-items:center; justify-content:center; border-radius:var(--r-chip);
   }
-  .quotabar>i{
-    display:block; height:100%; width:0; background:var(--accent);
-    transition:width .3s ease;
+  #histList button.del:hover{color:var(--alert)}
+
+  /* ── Quota rule ───────────────────────────────────────────────────────── */
+  .quota{margin-top:var(--s-7)}
+  .quotabar{height:2px; background:var(--rule); overflow:hidden}
+  .quotabar>i{display:block; height:100%; width:0; background:var(--ink-3); transition:width var(--t-base) var(--ease)}
+  #quotaText{
+    display:block; margin-top:var(--s-2);
+    font-size:11px; letter-spacing:.04em; color:var(--ink-3);
+    font-variant-numeric:tabular-nums;
   }
-  .banner{padding:12px 14px; border-radius:10px; font-size:14px; border:1px solid; margin-top:14px}
-  .banner.err{background:var(--errbg); border-color:var(--errline); color:var(--errink)}
-  .banner.warn{background:var(--warnbg); border-color:var(--warnline); color:var(--warnink); margin:0 0 18px}
-  code{font-family:ui-monospace,Consolas,monospace; font-size:.9em}
-  .hide{display:none}
-  .spin{display:inline-block; width:11px; height:11px; border:2px solid currentColor;
-        border-right-color:transparent; border-radius:50%; animation:sp .7s linear infinite;
-        vertical-align:-1px; margin-right:6px}
-  @keyframes sp{to{transform:rotate(360deg)}}
-  footer{margin-top:18px; font-size:12px; color:var(--muted); text-align:center}
+  #foot{margin-top:var(--s-2); font-size:11px; color:var(--ink-3)}
+
+  /* ── Signals ──────────────────────────────────────────────────────────── */
+  .banner{
+    padding:var(--s-3) var(--s-4); margin-top:var(--s-4);
+    font-size:13px; border-left:2px solid; border-radius:0;
+  }
+  .banner.err{background:var(--alert-wash); border-color:var(--alert); color:var(--alert)}
+  .banner.warn{background:var(--warn-wash); border-color:var(--ember); color:var(--ink-2)}
+  #status{font-size:13px; color:var(--ink-3); min-height:20px; margin-top:var(--s-3)}
+
+  /* ── Reading room ─────────────────────────────────────────────────────── */
+  .readwrap{position:relative; max-width:calc(var(--measure) + 160px); margin:0 auto; padding:var(--s-6) var(--s-6) 45vh}
+  #reader{
+    max-width:var(--measure); margin:0 auto;
+    font:400 19px/1.78 var(--font-prose);
+    font-variation-settings:'opsz' 18;
+    color:var(--ink); text-wrap:pretty;
+  }
+  #reader .para{
+    margin:0 0 22px; cursor:pointer; border-radius:2px;
+  }
+  #reader .para:last-child{margin-bottom:0}
+
+  /* THE BOUNDARY — ahead of the voice is full ink; behind it recedes. */
+  #reader .chunk{color:var(--ink)}
+  #reader .chunk.done{color:var(--ink-spent)}
+  #reader .chunk.live{color:var(--ink)}
+  #reader .w{color:inherit}
+  #reader .w.spoken{color:var(--ink-spent)}
+  #reader .w.now{
+    color:var(--ink);
+    background:linear-gradient(var(--ember-wash),var(--ember-wash)) padding-box,
+               linear-gradient(var(--ember),var(--ember)) 0 calc(100% - 1px)/100% 1px no-repeat;
+  }
+
+  /* The spine — one tick per paragraph of this chapter. */
+  .spine{
+    position:fixed; left:max(var(--s-4), calc(50% - var(--measure)/2 - 40px));
+    top:calc(var(--bar-head) + var(--s-4));
+    width:var(--spine-gutter);
+    height:calc(100dvh - var(--bar-head) - var(--bar-dock) - var(--s-6));
+    z-index:20; touch-action:pan-y;
+  }
+  .spine i{
+    position:absolute; left:0; display:block; height:2px;
+    background:var(--spine); border-radius:1px; cursor:pointer;
+    transition:width var(--t-base) var(--ease), background-color var(--t-base) var(--ease), height var(--t-base) var(--ease);
+  }
+  .spine i.lit{background:var(--spine-lit)}
+  .spine i.at{background:var(--ember); height:3px}
+
+  /* ── Dock ─────────────────────────────────────────────────────────────── */
+  .dock{
+    position:fixed; left:0; right:0; bottom:0; z-index:50;
+    height:calc(var(--bar-dock) + env(safe-area-inset-bottom));
+    padding:0 var(--s-5) env(safe-area-inset-bottom);
+    display:flex; align-items:center; gap:var(--s-3);
+    background:var(--surface-2); border-top:1px solid var(--rule);
+    box-shadow:var(--dock-shadow);
+  }
+  .dock .spacer{flex:1; min-width:0}
+  .dock #status{margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .transport{
+    width:var(--h-row); height:var(--h-row); border-radius:var(--r-round);
+    border:1px solid var(--ink-3); color:var(--ink);
+    display:inline-flex; align-items:center; justify-content:center;
+    font-size:15px; padding-left:2px;
+    transition:border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  }
+  .transport:hover:not(:disabled){border-color:var(--ink)}
+  .transport:active:not(:disabled){transform:scale(.97)}
+  .transport:disabled{opacity:.35; cursor:not-allowed}
+  #stop{
+    width:var(--h-row); height:var(--h-row); border-radius:var(--r-chip);
+    border:1px solid var(--rule-strong); color:var(--ink-2);
+    display:inline-flex; align-items:center; justify-content:center;
+  }
+  #stop:hover:not(:disabled){color:var(--ink); border-color:var(--ink-3)}
+
+  /* Queue rail, flush to the dock's top edge. */
+  #bar{
+    position:absolute; left:0; right:0; top:-3px; height:3px;
+    background:var(--rule); overflow:hidden;
+  }
+  #bar>i{display:block; height:100%; width:0; background:var(--rail-played); transition:width var(--t-base) var(--ease)}
+
+  #voice{
+    height:var(--h-chip); max-width:210px; padding:0 var(--s-2);
+    background:transparent; color:var(--ink-2);
+    border:1px solid var(--rule-strong); border-radius:var(--r-chip);
+    font:500 13px/1 var(--font-ui);
+  }
+  #voice:hover{color:var(--ink); border-color:var(--ink-3)}
+  .speedwrap{display:inline-flex; align-items:center; gap:var(--s-2); font-size:13px; color:var(--ink-3)}
+  #rate,#pitch{width:96px; height:20px; accent-color:var(--ember)}
+  #rateVal,#pitchVal{font-variant-numeric:tabular-nums; color:var(--ink-2); font-weight:500}
+  .pitchwrap{display:none}
+
+  /* Chrome recedes while the voice is running. */
+  body.running #chapterId,
+  body.running #partCount,
+  body.running .dock #status,
+  body.running .speedwrap,
+  body.running .wordmark{color:var(--ink-3)}
+
+  /* ── Mobile ───────────────────────────────────────────────────────────── */
+  @media (max-width:760px){
+    :root{--measure:100%; --bar-dock:56px}
+    .topbar{padding:0 var(--s-4); gap:var(--s-2)}
+    .setup{padding:var(--s-6) var(--s-4) var(--s-8)}
+    .readwrap{padding:var(--s-5) var(--s-4) 45vh var(--s-7)}
+    #reader{font-size:18px; line-height:1.72}
+    #text{font-size:18px; padding:var(--s-3) var(--s-4)}
+    .spine{left:6px; width:20px}
+    .dock{padding:0 var(--s-3) env(safe-area-inset-bottom); gap:var(--s-2)}
+    #voice{max-width:116px}
+    .speedwrap #rate{width:64px}
+    .dock #status{display:none}
+  }
+
+  /* The link field — what he touches every chapter. */
+  .urlrow{display:block; margin-bottom:var(--s-3); position:static; width:auto; height:auto; clip:auto; overflow:visible}
+  .urlrow input{
+    width:100%; height:var(--h-field); padding:0 var(--s-5);
+    background:var(--surface-3); color:var(--ink);
+    border:1px solid var(--rule-strong); border-radius:var(--r-field);
+    font:400 16px/1 var(--font-ui);
+    transition:border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+  }
+  .urlrow input::placeholder{color:var(--ink-3)}
+  .urlrow input:focus{outline:0; border-color:var(--ember); box-shadow:0 0 0 3px var(--ember-wash)}
+  .fieldlabel{margin:var(--s-7) 0 var(--s-2)}
+  .charline{
+    margin-top:var(--s-2); font-size:11px; letter-spacing:.04em;
+    color:var(--ink-3); font-variant-numeric:tabular-nums;
+  }
 </style>
 </head>
 <body>
+<header class="topbar">
+  <h1 class="wordmark">Speak</h1>
+  <span id="chapterId"></span>
+  <span class="spacer"></span>
+  <span id="partCount"></span>
+  <button id="edit" class="chip hide" type="button">Edit</button>
+  <button id="theme" class="chip micro" type="button" aria-label="Switch theme">◑</button>
+</header>
+
 <main>
-  <h1>Speak</h1>
-  <p class="sub">Paste text, pick a voice, press play.</p>
+  <section class="setup" id="setupRoom">
+    <div id="setup" class="banner warn hide">
+      <strong>Not connected.</strong> Set <code>WORKER_URL</code> in the script to your
+      Cloudflare Worker. Falling back to this browser's built-in voices for now.
+    </div>
 
-  <div id="setup" class="banner warn hide">
-    <strong>Not connected.</strong> Set <code>WORKER_URL</code> in the script to your
-    Cloudflare Worker. Falling back to this browser's built-in voices for now.
-  </div>
-
-  <div class="card">
-    <button id="toggleLinks" class="ghost linktoggle" type="button"
-            aria-expanded="false">▸ Load from links</button>
-
-    <div class="urlpanel hide" id="urlpanel">
+    <div class="urlpanel" id="urlpanel">
       <div class="urlrow">
         <input class="url" type="url" inputmode="url" spellcheck="false"
-               placeholder="paste a chapter link">
+               placeholder="Paste a chapter link" aria-label="Chapter link">
       </div>
 
-      <label class="chain">
-        <span>read</span>
-        <input id="chainN" type="number" min="1" max="15" step="1" value="1">
-        <span>chapters from here</span>
-      </label>
-
-      <div class="urlbtns">
-        <button id="load" type="button">Load</button>
-        <button id="clearLinks" type="button" class="ghost">Clear</button>
+      <div class="loadrow">
+        <label class="stepper" for="chainN">
+          <span>read</span>
+          <input id="chainN" type="number" min="1" max="15" step="1" value="1">
+          <span>chapters from here</span>
+        </label>
+        <span class="spacer"></span>
+        <button id="clearLinks" class="ghost" type="button">Clear</button>
+        <button id="load" class="btn solid" type="button">Load</button>
       </div>
+
+      <button id="toggleLinks" class="ghost hide" type="button" aria-expanded="true">Links</button>
 
       <div class="hist hide" id="hist">
         <div class="histhead">
-          <button id="toggleHist" type="button" class="ghost histtoggle"
+          <button id="toggleHist" class="ghost histtoggle" type="button"
                   aria-expanded="true"><span id="histCount">Recently loaded</span></button>
-          <button id="clearHist" type="button" class="ghost">Clear all</button>
+          <button id="clearHist" class="ghost" type="button">Clear all</button>
         </div>
         <ul id="histList"></ul>
       </div>
     </div>
 
-    <textarea id="text" placeholder="Paste or type your text here…" spellcheck="false"></textarea>
-    <div id="reader" class="reader hide" aria-live="off"></div>
-    <button id="edit" class="ghost hide" type="button">✎ Edit text</button>
+    <p class="seclabel fieldlabel">The text</p>
+    <textarea id="text" placeholder="…or paste the chapter text itself" spellcheck="false"></textarea>
+    <div class="charline"><span id="chars">0</span> characters</div>
 
-    <div class="row">
-      <label for="voice">Voice</label>
-      <select id="voice"></select>
-    </div>
-
-    <div class="sliders">
-      <div>
-        <label for="rate">Speed &middot; <span id="rateVal">1.0</span>&times;</label>
-        <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1">
-      </div>
-      <div>
-        <label for="pitch">Pitch &middot; <span id="pitchVal">0</span></label>
-        <input type="range" id="pitch" min="-10" max="10" step="1" value="0">
-      </div>
-    </div>
-
-    <div class="buttons">
-      <button id="speak" class="primary">▶ Speak</button>
-      <button id="stop" disabled>⏹ Stop</button>
-      <span class="count"><span id="chars">0</span> characters</span>
-    </div>
-
-    <div class="bar hide" id="bar"><i id="barFill"></i></div>
-    <div class="status" id="status">Ready.</div>
+    <div id="error" class="banner err hide"></div>
 
     <div class="quota">
       <div class="quotabar"><i id="quotaFill"></i></div>
       <span id="quotaText"></span>
     </div>
-    <div id="error" class="banner err hide"></div>
-  </div>
+    <div id="foot"></div>
+  </section>
 
-  <audio id="player" class="hide" playsinline preload="auto"></audio>
-  <footer id="foot"></footer>
+  <div class="readwrap hide" id="readRoom">
+    <div class="spine" id="spine"></div>
+    <div id="reader" class="reader hide" aria-live="off"></div>
+  </div>
 </main>
+
+<footer class="dock">
+  <div id="bar" class="hide"><i id="barFill"></i></div>
+  <button id="speak" class="transport" type="button" aria-label="Speak">▶</button>
+  <button id="stop" type="button" disabled aria-label="Stop">■</button>
+  <span class="speedwrap">
+    <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1" aria-label="Speed">
+    <span id="rateVal">1.0</span>×
+  </span>
+  <select id="voice" aria-label="Voice"></select>
+  <span class="pitchwrap">
+    <input type="range" id="pitch" min="-10" max="10" step="1" value="0" aria-label="Pitch">
+    <span id="pitchVal">0</span>
+  </span>
+  <span class="spacer"><span id="status">Ready.</span></span>
+</footer>
+
+<audio id="player" class="hide" playsinline preload="auto"></audio>
 
 <script>
 (function () {
@@ -1121,6 +1301,134 @@
     busy(false); running = false; progress(null);
     say('Stopped.');
   };
+
+  // ── The spine, the two rooms, and the theme ───────────────────────────
+  // The chapter drawn as one tick per paragraph, tick length proportional to
+  // that paragraph's length, so a chapter has a silhouette: dialogue stutters,
+  // description runs solid. It is the scrubber, the position readout and the
+  // replay affordance in one object. It steps once per paragraph — never fills
+  // continuously, because a permanently moving thing 40px from the line you are
+  // reading is noise.
+  var spineEl = $('spine'), readRoom = $('readRoom'), setupRoom = $('setupRoom');
+  var chapterId = $('chapterId'), partCount = $('partCount'), themeBtn = $('theme');
+  var ticks = [];
+
+  function applyTheme(t) {
+    if (t) document.documentElement.setAttribute('data-theme', t);
+    else document.documentElement.removeAttribute('data-theme');
+    try { localStorage.setItem('theme', t || ''); } catch (e) {}
+  }
+  try { var savedTheme = localStorage.getItem('theme'); if (savedTheme) applyTheme(savedTheme); } catch (e) {}
+
+  themeBtn.onclick = function () {
+    var cur = document.documentElement.getAttribute('data-theme');
+    var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme:dark)').matches;
+    applyTheme(cur ? (cur === 'dark' ? 'light' : '') : (sysDark ? 'light' : 'dark'));
+  };
+
+  function buildSpine() {
+    spineEl.innerHTML = '';
+    ticks = [];
+    var paras = [].slice.call(readerEl.querySelectorAll('.para'));
+    if (!paras.length) return;
+
+    // Cap the tick count. A five-chapter run is ~300 paragraphs; without this
+    // the pitch falls under 3px and the targets become unhittable.
+    var h = spineEl.clientHeight || 420;
+    var slots = Math.min(140, Math.max(8, Math.floor(h / 6)));
+    var step = Math.max(1, Math.ceil(paras.length / slots));
+
+    var groups = [];
+    for (var i = 0; i < paras.length; i += step) groups.push(paras.slice(i, i + step));
+    var pitch = h / groups.length;
+
+    groups.forEach(function (g, gi) {
+      var avg = g.reduce(function (n, p) { return n + p.textContent.length; }, 0) / g.length;
+      var t = document.createElement('i');
+      t.style.top = Math.round(gi * pitch + pitch / 2) + 'px';
+      t.style.width = Math.round(Math.max(6, Math.min(18, 6 + avg / 40))) + 'px';
+      t.title = g[0].textContent.trim().split(/\s+/).slice(0, 5).join(' ');
+      t.onclick = function () {
+        unlock();                       // gesture — must be first, iOS
+        if (g[0].__firstChunk !== undefined) playFrom(g[0].__firstChunk);
+      };
+      spineEl.appendChild(t);
+      ticks.push({ el: t, paras: g });
+    });
+    markSpine();
+  }
+
+  function markSpine() {
+    var live = readerEl.querySelector('.chunk.live');
+    var livePara = live && live.parentNode;
+    var at = -1;
+    for (var i = 0; i < ticks.length; i++) {
+      if (livePara && ticks[i].paras.indexOf(livePara) !== -1) { at = i; break; }
+    }
+    ticks.forEach(function (t, i) {
+      t.el.classList.toggle('at', i === at);
+      t.el.classList.toggle('lit', at >= 0 && i < at);
+    });
+  }
+
+  function syncRooms() {
+    var reading = !readerEl.classList.contains('hide');
+    readRoom.classList.toggle('hide', !reading);
+    setupRoom.classList.toggle('hide', reading);
+    document.body.classList.toggle('mode-read', reading);
+    if (reading) {
+      var first = histList.querySelector('button.pick');
+      chapterId.textContent = first ? first.textContent.replace(/\s*-\s*[^-]*$/, '') : '';
+      buildSpine();
+    }
+  }
+
+  function syncHasText() {
+    document.body.classList.toggle('has-text', textEl.value.trim().length > 0);
+  }
+
+  // The reader's own .hide class is the source of truth for which room we're in.
+  new MutationObserver(syncRooms).observe(readerEl, { attributes: true, attributeFilter: ['class'] });
+
+  // Chunk-level class changes move the spine. Word spans change far more often,
+  // so filter to .chunk or this fires once per spoken word.
+  new MutationObserver(function (muts) {
+    for (var i = 0; i < muts.length; i++) {
+      var t = muts[i].target;
+      if (t.classList && t.classList.contains('chunk')) { markSpine(); return; }
+    }
+  }).observe(readerEl, { subtree: true, attributes: true, attributeFilter: ['class'] });
+
+  // Chrome recedes while the voice is running — on state, never on a timer.
+  new MutationObserver(function () {
+    document.body.classList.toggle('running', speakBtn.disabled);
+  }).observe(speakBtn, { attributes: true, attributeFilter: ['disabled'] });
+
+  // The character count updates on every load, including programmatic ones,
+  // which makes it a reliable proxy for "the text changed".
+  new MutationObserver(syncHasText).observe(charsEl, { childList: true, characterData: true, subtree: true });
+  textEl.addEventListener('input', syncHasText);
+
+  // The part counter belongs in the header, not buried in the status line.
+  new MutationObserver(function () {
+    var m = /part (\d+) of (\d+)/.exec(statusEl.textContent);
+    partCount.textContent = m ? m[1] + ' / ' + m[2] : '';
+  }).observe(statusEl, { childList: true, characterData: true, subtree: true });
+
+  // The URL bar collapsing on iOS changes available height mid-session, which
+  // would otherwise leave the tick geometry stale.
+  var spineTimer = null;
+  function reflowSpine() {
+    clearTimeout(spineTimer);
+    spineTimer = setTimeout(function () {
+      if (!readerEl.classList.contains('hide')) buildSpine();
+    }, 150);
+  }
+  window.addEventListener('resize', reflowSpine);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', reflowSpine);
+
+  syncHasText();
+  syncRooms();
 
   refreshQuota();
 })();
