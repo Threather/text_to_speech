@@ -539,14 +539,6 @@
       if (p && p.catch) p.catch(reject);
     });
   }
-    return new Promise(function (resolve, reject) {
-      player.src = url;
-      player.onended = resolve;
-      player.onerror = function () { reject(new Error('Playback failed')); };
-      var p = player.play();
-      if (p && p.catch) p.catch(reject);
-    });
-  }
 
   // Kokoro runs in the browser. The model is ~86MB, so it's only fetched the
   // first time someone actually picks one of those voices.
