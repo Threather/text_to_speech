@@ -1306,10 +1306,15 @@
     player.ontimeupdate = null;
     if (lastWord) { lastWord.classList.remove('now'); lastWord = null; }
 
-    // Everything from here on is unread again.
+    // Only one chunk is ever live, so clear that everywhere — jumping forward
+    // used to leave the old one marked, and every "where am I" lookup found
+    // that stale chunk instead of the real position.
+    chunkEls.forEach(function (cs) { cs.classList.remove('live'); });
+
+    // Everything from here on is unread again. What came before stays spent.
     chunkEls.forEach(function (cs, i) {
       if (i >= start) {
-        cs.classList.remove('done', 'live');
+        cs.classList.remove('done');
         cs.__words.forEach(function (w) { w.classList.remove('spoken', 'now'); });
       }
     });
