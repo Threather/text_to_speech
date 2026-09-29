@@ -402,6 +402,37 @@
 
   #copyCh{flex:0 0 auto; white-space:nowrap}
   @media (max-width:760px){ #copyCh{padding:0 6px} }
+
+  /* The run, listed. Anchored under the header, never shifting the column. */
+  .chlist{
+    position:fixed; top:var(--bar-head); left:var(--s-5); z-index:55;
+    width:min(420px, calc(100vw - var(--s-5) * 2));
+    background:var(--surface-2); border:1px solid var(--rule-strong);
+    border-radius:var(--r-field); padding:var(--s-3);
+    box-shadow:var(--dock-shadow);
+  }
+  .chlist-head{padding:0 var(--s-2) var(--s-2)}
+  .chlist ul{list-style:none; margin:0; padding:0; max-height:52vh; overflow-y:auto}
+  .chlist li{
+    display:flex; align-items:center; gap:var(--s-2);
+    border-radius:var(--r-chip);
+  }
+  .chlist li:hover{background:var(--surface-3)}
+  .chlist li.at .chgo{color:var(--ember)}
+  .chgo{
+    flex:1; min-width:0; text-align:left; padding:10px var(--s-2);
+    font-size:13px; font-weight:500; color:var(--ink-2);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .chgo:hover{color:var(--ink)}
+  .chcopy{
+    flex:0 0 auto; padding:6px 10px; margin-right:var(--s-1);
+    font-size:11px; font-weight:500; color:var(--ink-3);
+    border:1px solid var(--rule); border-radius:var(--r-chip);
+  }
+  .chcopy:hover{color:var(--ink); border-color:var(--ink-3)}
+  #partCount{cursor:pointer}
+  @media (max-width:760px){ .chlist{left:var(--s-3); right:var(--s-3); width:auto} }
 </style>
 </head>
 <body>
@@ -411,11 +442,17 @@
   <button id="copyCh" class="chip micro hide" type="button"
           aria-label="Copy this chapter's link">Copy link</button>
   <span class="spacer"></span>
-  <span id="partCount"></span>
+  <button id="partCount" class="chip micro" type="button"
+          aria-expanded="false" aria-label="All chapters in this run"></button>
   <button id="imgChip" class="chip hide" type="button"><span id="imgCount">0</span> images</button>
   <button id="edit" class="chip hide" type="button">Edit</button>
   <button id="theme" class="chip micro" type="button" aria-label="Switch theme">◑</button>
 </header>
+
+<div class="chlist hide" id="chList">
+  <div class="chlist-head"><span class="seclabel">Loaded chapters</span></div>
+  <ul id="chListItems"></ul>
+</div>
 
 <main>
   <section class="setup" id="setupRoom">
@@ -1505,37 +1542,107 @@
     copyBtn.classList.toggle('hide', !copyUrl);
   }
 
-  copyBtn.onclick = function () {
-    if (!copyUrl) return;
-    var done = function (ok) {
-      clearTimeout(copyTimer);
-      copyBtn.textContent = ok ? 'Copied' : 'Press \u2318C';
-      copyTimer = setTimeout(function () { copyBtn.textContent = 'Copy link'; }, 1600);
-    };
-
+  // Older WebKit and any page without clipboard permission still needs the
+  // select-and-execCommand route, so both paths live here.
+  function copyText(text, done) {
+    if (!text) { done(false); return; }
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(copyUrl).then(function () { done(true); }, function () { fallback(); });
+      navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
     } else {
       fallback();
     }
-
-    // Older WebKit and any page without clipboard permission still needs the
-    // select-and-execCommand route.
     function fallback() {
       try {
         var ta = document.createElement('textarea');
-        ta.value = copyUrl;
+        ta.value = text;
         ta.setAttribute('readonly', '');
         ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
         document.body.appendChild(ta);
         ta.select();
-        ta.setSelectionRange(0, copyUrl.length);
+        ta.setSelectionRange(0, text.length);
         var ok = document.execCommand('copy');
         document.body.removeChild(ta);
         done(ok);
       } catch (e) { done(false); }
     }
+  }
+
+  copyBtn.onclick = function () {
+    copyText(copyUrl, function (ok) {
+      clearTimeout(copyTimer);
+      copyBtn.textContent = ok ? 'Copied' : 'Press \u2318C';
+      copyTimer = setTimeout(function () { copyBtn.textContent = 'Copy link'; }, 1600);
+    });
   };
+
+  // Every chapter in the run, in one place. The inline headings say where a
+  // chapter starts; this says what you loaded, and hands you each link.
+  var chListEl = $('chList'), chListItems = $('chListItems');
+
+  function firstChunkOfChapter(m) {
+    for (var i = 0; i < curChunks.length; i++) {
+      if (curChunks[i].para >= m.para) return i;
+    }
+    return -1;
+  }
+
+  function renderChList() {
+    chListItems.innerHTML = '';
+    chapterMarks.forEach(function (m, i) {
+      var li = document.createElement('li');
+      if (i === chapterId.__at) li.className = 'at';
+
+      var go = document.createElement('button');
+      go.type = 'button';
+      go.className = 'chgo';
+      go.textContent = m.title;
+      go.title = 'Read from here';
+      go.onclick = function () {
+        unlock();                       // gesture — first, for iOS
+        var idx = firstChunkOfChapter(m);
+        if (idx >= 0) playFrom(idx);
+        closeChList();
+      };
+
+      var cp = document.createElement('button');
+      cp.type = 'button';
+      cp.className = 'chcopy';
+      cp.textContent = 'Copy';
+      cp.title = m.url || '';
+      cp.onclick = function () {
+        copyText(m.url, function (ok) {
+          cp.textContent = ok ? 'Copied' : 'Failed';
+          setTimeout(function () { cp.textContent = 'Copy'; }, 1400);
+        });
+      };
+
+      li.appendChild(go);
+      if (m.url) li.appendChild(cp);
+      chListItems.appendChild(li);
+    });
+  }
+
+  function openChList() {
+    if (chapterMarks.length < 2) return;
+    renderChList();
+    chListEl.classList.remove('hide');
+    partCount.setAttribute('aria-expanded', 'true');
+  }
+  function closeChList() {
+    chListEl.classList.add('hide');
+    partCount.setAttribute('aria-expanded', 'false');
+  }
+
+  partCount.onclick = function (e) {
+    e.stopPropagation();
+    if (chListEl.classList.contains('hide')) openChList(); else closeChList();
+  };
+  document.addEventListener('click', function (e) {
+    if (!chListEl.contains(e.target) && e.target !== partCount) closeChList();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeChList();
+  });
 
   // Which chapter is being spoken right now. The history holds the LAST chapter
   // loaded and the link box holds the NEXT one, so neither answers this.
