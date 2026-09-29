@@ -399,12 +399,17 @@
   .chmark a:hover, #chapterId a:hover{color:var(--ember); border-bottom-color:var(--ember)}
   #chapterId a{display:inline-block; max-width:100%; overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom}
+
+  #copyCh{flex:0 0 auto; white-space:nowrap}
+  @media (max-width:760px){ #copyCh{padding:0 6px} }
 </style>
 </head>
 <body>
 <header class="topbar">
   <h1 class="wordmark">Speak</h1>
   <span id="chapterId"></span>
+  <button id="copyCh" class="chip micro hide" type="button"
+          aria-label="Copy this chapter's link">Copy link</button>
   <span class="spacer"></span>
   <span id="partCount"></span>
   <button id="imgChip" class="chip hide" type="button"><span id="imgCount">0</span> images</button>
@@ -1491,6 +1496,47 @@
     if (live) showChapterFor(chunkEls.indexOf(live));
   }
 
+  // Copying the current chapter's link is the whole point of knowing which
+  // chapter you're on — stopping mid-run is the normal case, not the edge one.
+  var copyBtn = $('copyCh'), copyUrl = null, copyTimer = null;
+
+  function setCopyTarget(url) {
+    copyUrl = url || null;
+    copyBtn.classList.toggle('hide', !copyUrl);
+  }
+
+  copyBtn.onclick = function () {
+    if (!copyUrl) return;
+    var done = function (ok) {
+      clearTimeout(copyTimer);
+      copyBtn.textContent = ok ? 'Copied' : 'Press \u2318C';
+      copyTimer = setTimeout(function () { copyBtn.textContent = 'Copy link'; }, 1600);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(copyUrl).then(function () { done(true); }, function () { fallback(); });
+    } else {
+      fallback();
+    }
+
+    // Older WebKit and any page without clipboard permission still needs the
+    // select-and-execCommand route.
+    function fallback() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = copyUrl;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, copyUrl.length);
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        done(ok);
+      } catch (e) { done(false); }
+    }
+  };
+
   // Which chapter is being spoken right now. The history holds the LAST chapter
   // loaded and the link box holds the NEXT one, so neither answers this.
   function chapterAt(rawPara) {
@@ -1509,6 +1555,7 @@
       chapterId.__at = i;
       chapterId.innerHTML = '';
       chapterId.appendChild(chapterLink(chapterMarks[i]));
+      setCopyTarget(chapterMarks[i].url);
     }
     if (chapterMarks.length > 1) {
       partCount.textContent = (i + 1) + ' / ' + chapterMarks.length;
@@ -1568,7 +1615,12 @@
     if (reading) {
       chapterId.innerHTML = '';
       chapterId.__at = chapterMarks.length ? 0 : -1;
-      if (chapterMarks.length) chapterId.appendChild(chapterLink(chapterMarks[0]));
+      if (chapterMarks.length) {
+        chapterId.appendChild(chapterLink(chapterMarks[0]));
+        setCopyTarget(chapterMarks[0].url);
+      } else {
+        setCopyTarget(null);
+      }
       if (chapterMarks.length > 1) partCount.textContent = '1 / ' + chapterMarks.length;
       drawChapterMarks();
       buildSpine();
