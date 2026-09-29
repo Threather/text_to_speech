@@ -1403,8 +1403,17 @@
 
   // [{title, url, para}] — where each loaded chapter starts, in paragraphs.
   var chapterMarks = [];
+  // "Shadow Slave Chapter 2682 Fellow Slayers - NovelFull" -> "Ch. 2682 \u00b7 Fellow Slayers".
+  // The series name is identical on every chapter and only eats the width that
+  // the number and the actual title need, so it goes.
   function cleanTitle(t) {
-    return String(t || '').replace(/\s*[-|\u2013\u2014]\s*[^-|\u2013\u2014]*$/, '').trim();
+    var s = String(t || '')
+      .replace(/\s*[-|\u2013\u2014]\s*[^-|\u2013\u2014]*$/, '')   // trailing site name
+      .trim();
+    var m = s.match(/chapter\s*([\d.]+)\s*[:.\u2013-]?\s*(.*)$/i);
+    if (!m) return s;
+    var rest = m[2].trim();
+    return rest ? 'Ch. ' + m[1] + ' \u00b7 ' + rest : 'Ch. ' + m[1];
   }
   var ticks = [];
 
