@@ -382,6 +382,14 @@
   @media (max-width:1200px){
     body.rail-open .imgrail{display:none}
   }
+
+  /* The boundary between two chapters in one continuous scroll. */
+  .chmark{
+    margin:var(--s-7) 0 var(--s-6); padding-top:var(--s-3);
+    border-top:1px solid var(--rule);
+    font-family:var(--font-ui); font-size:11px; font-weight:700;
+    letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3);
+  }
 </style>
 </head>
 <body>
@@ -1017,7 +1025,20 @@
       .then(function (d) {
         var pages = d.pages || d;              // tolerate the older shape
         var joined = pages.map(function (p) { return p.text; }).join('\n\n');
-        textEl.value = append && textEl.value.trim()
+        var appending = append && textEl.value.trim();
+
+        // Where each chapter begins, counted in paragraphs. chunkText splits the
+        // same way, so these line up with the `para` index every chunk carries.
+        var offset = appending
+          ? textEl.value.replace(/\s+$/, '').split(/\n\s*\n/).length
+          : 0;
+        if (!appending) chapterMarks = [];
+        pages.forEach(function (p) {
+          chapterMarks.push({ title: cleanTitle(p.title), url: p.url, para: offset });
+          offset += p.text.split(/\n\s*\n/).length;
+        });
+
+        textEl.value = appending
           ? textEl.value.replace(/\s+$/, '') + '\n\n' + joined
           : joined;
         charsEl.textContent = textEl.value.length;
@@ -1374,6 +1395,12 @@
   // reading is noise.
   var spineEl = $('spine'), readRoom = $('readRoom'), setupRoom = $('setupRoom');
   var chapterId = $('chapterId'), partCount = $('partCount'), themeBtn = $('theme');
+
+  // [{title, url, para}] — where each loaded chapter starts, in paragraphs.
+  var chapterMarks = [];
+  function cleanTitle(t) {
+    return String(t || '').replace(/\s*[-|\u2013\u2014]\s*[^-|\u2013\u2014]*$/, '').trim();
+  }
   var ticks = [];
 
   function applyTheme(t) {
@@ -1438,6 +1465,54 @@
       t.el.classList.toggle('at', i === at);
       t.el.classList.toggle('lit', at >= 0 && i < at);
     });
+    if (live) showChapterFor(chunkEls.indexOf(live));
+  }
+
+  // Which chapter is being spoken right now. The history holds the LAST chapter
+  // loaded and the link box holds the NEXT one, so neither answers this.
+  function chapterAt(rawPara) {
+    var found = -1;
+    for (var i = 0; i < chapterMarks.length; i++) {
+      if (chapterMarks[i].para <= rawPara) found = i; else break;
+    }
+    return found;
+  }
+
+  function showChapterFor(chunkIdx) {
+    if (chunkIdx < 0 || !curChunks[chunkIdx] || !chapterMarks.length) return;
+    var i = chapterAt(curChunks[chunkIdx].para);
+    if (i < 0) return;
+    chapterId.textContent = chapterMarks[i].title;
+    if (chapterMarks.length > 1) {
+      partCount.textContent = (i + 1) + ' / ' + chapterMarks.length;
+    }
+  }
+
+  // A rule across the column wherever one chapter ends and the next begins —
+  // the only way to see a boundary inside a 30,000-character scroll.
+  function drawChapterMarks() {
+    [].slice.call(readerEl.querySelectorAll('.chmark')).forEach(function (el) { el.remove(); });
+    if (chapterMarks.length < 2) return;
+
+    // The k-th .para element corresponds to the k-th distinct para index.
+    var distinct = [], prev = -1;
+    for (var i = 0; i < curChunks.length; i++) {
+      if (curChunks[i].para !== prev) { distinct.push(curChunks[i].para); prev = curChunks[i].para; }
+    }
+    var paras = readerEl.querySelectorAll('.para');
+
+    chapterMarks.forEach(function (m, ci) {
+      if (!ci) return;                       // nothing to mark before the first
+      for (var k = 0; k < distinct.length && k < paras.length; k++) {
+        if (distinct[k] >= m.para) {
+          var mark = document.createElement('div');
+          mark.className = 'chmark';
+          mark.textContent = m.title;
+          paras[k].parentNode.insertBefore(mark, paras[k]);
+          return;
+        }
+      }
+    });
   }
 
   function syncRooms() {
@@ -1446,8 +1521,9 @@
     setupRoom.classList.toggle('hide', reading);
     document.body.classList.toggle('mode-read', reading);
     if (reading) {
-      var first = histList.querySelector('button.pick');
-      chapterId.textContent = first ? first.textContent.replace(/\s*-\s*[^-]*$/, '') : '';
+      chapterId.textContent = chapterMarks.length ? chapterMarks[0].title : '';
+      if (chapterMarks.length > 1) partCount.textContent = '1 / ' + chapterMarks.length;
+      drawChapterMarks();
       buildSpine();
     }
   }
@@ -1476,10 +1552,14 @@
   // The character count updates on every load, including programmatic ones,
   // which makes it a reliable proxy for "the text changed".
   new MutationObserver(syncHasText).observe(charsEl, { childList: true, characterData: true, subtree: true });
-  textEl.addEventListener('input', syncHasText);
+  textEl.addEventListener('input', function () {
+    syncHasText();
+    chapterMarks = [];     // edited text no longer matches the loaded chapters
+  });
 
   // The part counter belongs in the header, not buried in the status line.
   new MutationObserver(function () {
+    if (chapterMarks.length > 1) return;   // the chapter counter owns this slot
     var m = /part (\d+) of (\d+)/.exec(statusEl.textContent);
     partCount.textContent = m ? m[1] + ' / ' + m[2] : '';
   }).observe(statusEl, { childList: true, characterData: true, subtree: true });
